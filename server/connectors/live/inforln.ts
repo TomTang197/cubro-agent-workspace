@@ -20,10 +20,11 @@ const CURRENCIES: LnPurchaseOrder["currency"][] = ["NZD", "AUD", "USD", "EUR", "
 export function orderStatus(raw: string, lines: LnPurchaseOrderLine[], confirmed: string | null): LnPurchaseOrder["status"] {
   const known = STATUSES.find((s) => s.toLowerCase() === raw.toLowerCase());
   if (known) return known;
-  const ordered = lines.reduce((n, l) => n + l.quantity, 0), received = lines.reduce((n, l) => n + l.received, 0);
   if (/clos|cancel/i.test(raw)) return "Closed";
-  if (ordered > 0 && received >= ordered) return "Received";
-  if (received > 0) return "Partially received";
+  // Line by line: extra units received on one line do not make up for a line that is still short.
+  const ordered = lines.filter((l) => l.quantity > 0);
+  if (ordered.length && ordered.every((l) => l.received >= l.quantity)) return "Received";
+  if (lines.some((l) => l.received > 0)) return "Partially received";
   if (confirmed) return "Confirmed";
   return /sent|print|approv|releas/i.test(raw) ? "Sent" : "Created";
 }
