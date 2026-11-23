@@ -13,10 +13,11 @@ export default function Approvals() {
   const nav = useNavigate();
   const list = (data ?? []).filter((a) => !q || a.title.toLowerCase().includes(q.toLowerCase()));
   const selected = list.find((a) => a.id === id) ?? (id ? undefined : list[0]);
-  const set = (k: string, v: string) => { const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); setParams(p); };
+  const dirty = useRef(false);
+  const keepEdits = () => dirty.current && !window.confirm("You have unsaved edits to this draft. Leave without saving them?");
+  const set = (k: string, v: string) => { if (keepEdits()) return; const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); setParams(p); };
   const qs = params.toString() ? `?${params}` : "";
   const [done, setDone] = useState<ApprovalItem>();
-  const dirty = useRef(false);
 
   return (
     <>
@@ -30,14 +31,14 @@ export default function Approvals() {
       {done && <div className="banner" role="status">
         <b>{done.status === "approved" ? (done.payload.type === "supplier_email" ? "Sent" : "Approved") : "Rejected"}:</b> {done.title}.{" "}
         {done.status === "approved" ? `${(done.outcome ?? []).map((o) => o.label).join(" · ")}.` : "Nothing was sent."}{" "}
-        <Link to={`/approvals/${done.id}?status=${done.status}${agent ? `&agent=${agent}` : ""}`}>View</Link>
+        <Link to={`/approvals/${done.id}?status=${done.status}${agent ? `&agent=${agent}` : ""}`} onClick={(e) => { if (keepEdits()) e.preventDefault(); }}>View</Link>
       </div>}
       <div className="split">
         <div className="list card flush">
           {list.length === 0 && <p className="muted pad">{data ? "Nothing here." : "Loading…"}</p>}
           {list.map((a) => (
             <Link key={a.id} to={`/approvals/${a.id}${qs}`} className={`list-row ${selected?.id === a.id ? "sel" : ""}`}
-              onClick={(e) => { if (a.id !== selected?.id && dirty.current && !window.confirm("You have unsaved edits to this draft. Leave without saving them?")) e.preventDefault(); }}>
+              onClick={(e) => { if (a.id !== selected?.id && keepEdits()) e.preventDefault(); }}>
               <div className="row between"><span className="small muted">{AGENT_NAMES[a.agent]}</span>{a.priority === "high" && <span className="pill warn">High</span>}{a.status !== "pending" && <span className={`pill ${a.status === "approved" ? "ok" : "bad"}`}>{a.status}</span>}</div>
               <div className="title">{a.title}</div>
               <div className="small muted">{a.payload.type === "social_post" ? `Scheduled ${when(a.payload.scheduledFor)}` : `To ${a.payload.to.address}`} · drafted {when(a.createdAt)}</div>
