@@ -5,6 +5,18 @@ import { useApi } from "../useApi";
 
 const AGENT_LABEL: Record<AgentId, string> = { "social-media": "Social Media Planner", "supplier-outreach": "Supplier Outreach" };
 
+// Only what was edited is sent, so saving from a page opened earlier doesn't undo someone else's change.
+function changes(from: unknown, to: unknown): unknown {
+  if (JSON.stringify(from) === JSON.stringify(to)) return undefined;
+  if (typeof to !== "object" || to === null || Array.isArray(to) || typeof from !== "object" || from === null) return to;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(to)) {
+    const c = changes((from as Record<string, unknown>)[k], v);
+    if (c !== undefined) out[k] = c;
+  }
+  return out;
+}
+
 export default function SettingsPage() {
   const { data, error: loadError } = useApi<Settings>("/settings");
   const [saved, setSaved] = useState<Settings>();
@@ -27,7 +39,7 @@ export default function SettingsPage() {
   const save = async () => {
     setBusy(true); setStatus(undefined);
     try {
-      const next = await api<Settings>("/settings", { method: "PUT", body: s });
+      const next = await api<Settings>("/settings", { method: "PUT", body: changes(saved, s) as object });
       setSaved(next); setS(structuredClone(next)); setStatus({ kind: "ok", text: "Saved" });
     } catch (e) { setStatus({ kind: "bad", text: `Not saved: ${e instanceof Error ? e.message : String(e)}` }); }
     finally { setBusy(false); }
