@@ -23,6 +23,9 @@ export default function Approvals() {
   const agent = agentParam === "all" ? "" : agentParam ?? (focus && !id ? agentFor(me) : "");
   const [q, setQ] = useState("");
   const { data, error, reload } = useApi<ApprovalItem[]>(`/approvals?status=${status}${agent ? `&agent=${agent}` : ""}`);
+  // A decision is sent on seconds after it was made, so it reloads whichever queue is on screen by then.
+  const reloadNow = useRef(reload);
+  reloadNow.current = reload;
   const nav = useNavigate();
   const dirty = useRef(false);
   // A draft with unsaved edits stays in the list and stays open, whatever is typed in the search box.
@@ -49,7 +52,7 @@ export default function Approvals() {
   async function commit(h: Held, keepalive = false) {
     try { setDone(await api<ApprovalItem>(`/approvals/${h.item.id}/${h.kind}`, { method: "POST", body: { note: h.note, user: h.by }, keepalive })); }
     catch (e) { setFailed({ item: h.item, message: e instanceof Error ? e.message : String(e) }); setDecided((d) => d.filter((x) => x !== h.item.id)); }
-    finally { reload(); }
+    finally { reloadNow.current(); }
   }
   const settle = (keepalive = false) => {
     const h = heldRef.current;
