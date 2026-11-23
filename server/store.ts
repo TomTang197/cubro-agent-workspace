@@ -130,6 +130,8 @@ export const DEFAULT_SETTINGS: Settings = {
 const STATE_VERSION = 3;
 /** Records the sample data was seeded with have ids like apr-h1x; anything else was made by staff using the workspace. */
 const seeded = (id: string) => /^[a-z]+-h[0-9a-z]+$/.test(id);
+/** Emails, Teams posts, tasks and logged activities that approvals wrote into the sample systems (ids from nextId, e.g. 86c-mhx3k2a91). */
+const written = (id: string) => /^(AAMkDraft|teams|86c|00TWs)-[0-9a-z]{9,}$/.test(id);
 
 export class Store {
   state: WorkspaceState;
@@ -166,8 +168,15 @@ export class Store {
         if (was) Object.assign(settings.agents[k], was, names.has(was.owner) ? {} : { owner: settings.agents[k].owner });
       }
     }
+    // What approvals wrote into the sample systems stays, so the links in their outcomes still lead somewhere.
+    const keep = <T,>(was: T[] | undefined, now: T[], id: (x: T) => string) => [...(was ?? []).filter((x) => written(id(x))), ...now];
+    const was = old.systems, systems = structuredClone(fresh.systems);
+    systems.m365.messages = keep(was?.m365?.messages, systems.m365.messages, (x) => x.id);
+    systems.m365.teamsPosts = keep(was?.m365?.teamsPosts, systems.m365.teamsPosts, (x) => x.id);
+    systems.clickup.tasks = keep(was?.clickup?.tasks, systems.clickup.tasks, (x) => x.id);
+    systems.salesforce.activities = keep(was?.salesforce?.activities, systems.salesforce.activities, (x) => x.Id);
     return {
-      ...fresh, settings, counters: { ...old.counters },
+      ...fresh, systems, settings, counters: { ...old.counters },
       approvals: [...approvals, ...fresh.approvals],
       runs: [...(old.runs ?? []).filter((r) => !seeded(r.id)), ...fresh.runs],
       savings: [...savings.map((x) => ({ ...x, approvalId: x.approvalId && carried(x.approvalId) })), ...fresh.savings].sort((a, b) => b.decidedAt.localeCompare(a.decidedAt)),

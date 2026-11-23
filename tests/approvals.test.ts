@@ -158,6 +158,11 @@ describe("saved workspace from before a sample data change", () => {
     expect(state.approvals.filter((a) => !/^apr-h/.test(a.id) && !/^apr-v2h/.test(a.id))).toHaveLength(mine.drafts);
     expect(new Set(state.approvals.map((a) => a.id)).size).toBe(state.approvals.length);
     expect(state.activity.some((x) => x.actor === "Priya Raman" && x.action === "approved" && x.detail === approved.title)).toBe(true);
+    // The email and follow-up task that approval made are still in the sample systems, once each.
+    const [email, followUp] = kept.outcome!;
+    expect(state.systems.m365.messages.filter((m) => m.id === email.ref)).toMatchObject([{ folder: "Sent Items" }]);
+    expect(state.systems.clickup.tasks.filter((t) => t.url === followUp.ref)).toHaveLength(1);
+    expect(state.systems.clickup.tasks.length).toBe(new Store({ today }).state.systems.clickup.tasks.length + 1);
     expect(JSON.parse(fs.readFileSync(path.join(dataDir, "state.v2.json"), "utf8")).version).toBe(2);
     // Loading again changes nothing.
     expect(new Store({ dataDir, today }).state.approvals.length).toBe(state.approvals.length);
