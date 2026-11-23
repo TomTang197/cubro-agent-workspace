@@ -24,7 +24,8 @@ function marking<T extends object>(connector: T, store: Store): T {
       if (typeof value !== "function" || prop === "status") return value;
       return async (...args: unknown[]) => {
         const out = await value.apply(target, args);
-        if (!store.state.heldLive) { store.state.heldLive = true; store.save(); }
+        // Not saved here: the mark reaches the file with the next save, which is also the only way a real record can. A write that worked is never reported as failed.
+        store.state.heldLive = true;
         return out;
       };
     },
