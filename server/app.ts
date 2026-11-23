@@ -33,11 +33,10 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
     if (req.path === "/api/health") return next();
     const refuse = (code: number, error: string) => { if (req.path.startsWith("/api/")) res.status(code).json({ error }); else res.status(code).type("text/plain").send(error); };
     if (!password) {
-      // Drafts and decisions saved while a real system was connected stay closed if the password is later taken away.
+      // Drafts and decisions saved after a real system answered stay closed if the password is later taken away.
       if (store.state.heldLive) return refuse(503, "This workspace holds drafts and decisions made from real systems and has no sign-in password. Set WORKSPACE_PASSWORD on the server and restart.");
       return next();
     }
-    if (anyLive && !store.state.heldLive) { store.state.heldLive = true; store.save(); }
     // The password is only asked for over an encrypted connection (or on the server itself), so it is never sent in the clear.
     const forwarded = req.header("x-forwarded-proto")?.split(",")[0].trim().toLowerCase();
     const onServer = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "");
@@ -132,7 +131,8 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
     store.save();
     return next;
   }));
-  api.post("/reset", wrap(() => { store.reset(); return { ok: true }; }));
+  // While a real system is switched on, a run still in flight can save drafts made from it after the reset, so the workspace stays marked.
+  api.post("/reset", wrap(() => { store.reset(undefined, anyLive && store.state.heldLive); return { ok: true }; }));
 
   api.get("/systems", wrap(() => Promise.all(SYSTEM_IDS.map(statusOf))));
   api.post("/systems/:system/test", wrap(async (req) => {

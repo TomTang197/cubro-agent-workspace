@@ -126,11 +126,16 @@ describe("connected systems API", () => {
     await request(a).get("/api/systems/inforln/items").expect(200);
   });
 
-  it("stays closed if the password is taken away after a real system was connected", async () => {
+  it("stays closed if the password is taken away after a real system answered", async () => {
     const store = new Store({ today });
-    const { fetchImpl } = fakeFetch([token]);
+    const { fetchImpl } = fakeFetch([token, ["/query", () => ({ totalSize: 0, done: true, records: [] })]]);
     const make = (env: Record<string, string>) => createApp(store, { llm: templateProvider, env, fetch: fetchImpl });
-    await request(make({ CONNECTOR_SALESFORCE: "live", ...SF, WORKSPACE_PASSWORD: "kōwhai-42" })).get("/api/approvals").set("authorization", signIn).expect(200);
+    const live = { CONNECTOR_SALESFORCE: "live", ...SF, WORKSPACE_PASSWORD: "kōwhai-42" };
+    await request(make(live)).get("/api/systems/salesforce/accounts").set("authorization", signIn).expect(200);
+    expect(store.state.heldLive).toBe(true);
+    // Resetting while the real system is still switched on keeps the mark: a run in flight can save drafts made from it afterwards.
+    await request(make(live)).post("/api/reset").set("authorization", signIn).send({}).expect(200);
+    expect(store.state.heldLive).toBe(true);
     // Restarted without the password, with or without the live switch: the saved drafts are not served.
     for (const env of [{}, { CONNECTOR_SALESFORCE: "live", ...SF }]) {
       const res = await request(make(env)).get("/api/approvals").expect(503);
@@ -140,8 +145,23 @@ describe("connected systems API", () => {
       await request(make(env)).get("/api/health").expect(200);
     }
     await request(make({ WORKSPACE_PASSWORD: "kōwhai-42" })).get("/api/approvals").set("authorization", signIn).expect(200);
+    // Back on sample data with the password still set, a reset clears the mark and the password can then be removed.
+    await request(make({ WORKSPACE_PASSWORD: "kōwhai-42" })).post("/api/reset").set("authorization", signIn).send({}).expect(200);
+    await request(make({})).get("/api/approvals").expect(200);
     // A workspace that never had a real system connected stays open without a password.
     await request(createApp(new Store({ today }), { llm: templateProvider, env: {}, fetch: noNetwork })).get("/api/approvals").expect(200);
+  });
+
+  it("stays open on sample data after a live setup that never connected is rolled back", async () => {
+    const store = new Store({ today });
+    const { fetchImpl } = fakeFetch([["/services/oauth2/token", () => new Response('{"error":"invalid_client"}', { status: 401 })]]);
+    const make = (env: Record<string, string>) => createApp(store, { llm: templateProvider, env, fetch: fetchImpl });
+    const failing = make({ CONNECTOR_SALESFORCE: "live", ...SF, WORKSPACE_PASSWORD: "kōwhai-42" });
+    expect((await request(failing).get("/api/systems").set("authorization", signIn).expect(200)).body[1].connected).toBe(false);
+    await request(failing).get("/api/systems/salesforce/accounts").set("authorization", signIn).expect(502);
+    await request(failing).get("/api/approvals").set("authorization", signIn).expect(200);
+    expect(store.state.heldLive).toBeFalsy();
+    await request(make({})).get("/api/approvals").expect(200);
   });
 
   it("reports a live system that rejects the credentials without failing the page", async () => {

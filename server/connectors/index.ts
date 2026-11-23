@@ -16,9 +16,24 @@ function locked<T extends object>(system: SystemId): T {
   return new Proxy({}, { get: () => refuse }) as T;
 }
 
+/** Notes on the workspace the first time a real system answers a read or a write, so what is saved from then on stays behind the password. A status check alone does not count. */
+function marking<T extends object>(connector: T, store: Store): T {
+  return new Proxy(connector, {
+    get(target, prop, receiver) {
+      const value = Reflect.get(target, prop, receiver);
+      if (typeof value !== "function" || prop === "status") return value;
+      return async (...args: unknown[]) => {
+        const out = await value.apply(target, args);
+        if (!store.state.heldLive) { store.state.heldLive = true; store.save(); }
+        return out;
+      };
+    },
+  });
+}
+
 export function createConnectors(store: Store, env: Env = process.env, fetchImpl: FetchLike = fetch): Connectors {
   const mock = createMockConnectors(store, env);
-  const live = <T extends object>(system: SystemId, make: () => T, sample: T) => (!isLive(system, env) ? sample : workspacePassword(env) ? make() : locked<T>(system));
+  const live = <T extends object>(system: SystemId, make: () => T, sample: T) => (!isLive(system, env) ? sample : workspacePassword(env) ? marking(make(), store) : locked<T>(system));
   return {
     m365: live("m365", () => createLiveM365(env, fetchImpl), mock.m365),
     salesforce: live("salesforce", () => createLiveSalesforce(env, fetchImpl), mock.salesforce),

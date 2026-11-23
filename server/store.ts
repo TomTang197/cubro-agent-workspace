@@ -114,7 +114,7 @@ export interface WorkspaceState {
   activity: ActivityEntry[];
   settings: Settings;
   counters: Record<string, number>;
-  /** Set once a real system has been connected: from then on the saved drafts and decisions may hold real records. */
+  /** Set once a real system has answered a read or a write: from then on the saved drafts and decisions may hold real records. */
   heldLive?: boolean;
 }
 
@@ -202,8 +202,9 @@ export class Store {
     };
   }
 
-  reset(today = new Date()) {
+  reset(today = new Date(), heldLive = false) {
     this.state = Store.fresh(undefined, today);
+    if (heldLive) this.state.heldLive = true;
     this.save();
   }
 
