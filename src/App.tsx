@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { TEAMS, getUser, setUser } from "./api";
 import Overview from "./pages/Overview";
@@ -21,6 +21,9 @@ const NAV = [
 export default function App() {
   const [user, setU] = useState(getUser());
   const [menu, setMenu] = useState(false);
+  const shell = useRef<HTMLDivElement>(null);
+  const drawer = useRef<HTMLElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
   const { pathname } = useLocation();
   useEffect(() => {
     const page = NAV.find((n) => (n.end ? pathname === n.to : pathname.startsWith(n.to)));
@@ -32,15 +35,25 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [menu]);
+  useEffect(() => {
+    shell.current?.querySelectorAll(":scope > .topbar, :scope > .content, :scope > .site-footer").forEach((el) => el.toggleAttribute("inert", menu));
+    if (menu) {
+      opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      (drawer.current?.querySelector<HTMLElement>("nav a.active") ?? drawer.current?.querySelector<HTMLElement>("nav a"))?.focus();
+    } else if (opener.current) {
+      opener.current.focus();
+      opener.current = null;
+    }
+  }, [menu]);
   const pick = (name: string) => { setUser(name); setU(name); };
   const nav = NAV.map((n) => <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setMenu(false)}>{n.label}</NavLink>);
   return (
-    <div className="shell">
+    <div className="shell" ref={shell}>
       {menu && <div className="backdrop" onClick={() => setMenu(false)} aria-hidden="true" />}
       <header className="topbar">
         <div className="topbar-inner">
           <button className="ghost menu-btn" onClick={() => setMenu(!menu)} aria-label="Menu" aria-expanded={menu}>☰</button>
-          <NavLink to="/" className="brand" aria-label="Cubro Agent Workspace, Overview"><img src="/cubro-logo.png" alt="Cubro" /><span>Agent Workspace</span></NavLink>
+          <NavLink to="/" className="brand" onClick={() => setMenu(false)} aria-label="Cubro Agent Workspace, Overview"><img src="/cubro-logo.png" alt="Cubro" /><span>Agent Workspace</span></NavLink>
           <nav className="top-nav">{nav}</nav>
           <div className="top-tools">
             <label className="who-label" title="There is no login in the pilot. Pick your name so your approvals and agent runs are recorded under it.">
@@ -51,7 +64,7 @@ export default function App() {
           <button className="ghost who" onClick={() => setMenu(true)} title="Switch staff member">{user}</button>
         </div>
       </header>
-      <aside className={`sidebar ${menu ? "open" : ""}`} aria-hidden={!menu}>
+      <aside ref={drawer} className={`sidebar ${menu ? "open" : ""}`} aria-hidden={!menu}>
         <div className="brand"><img src="/cubro-logo.png" alt="Cubro" /><span>Agent Workspace</span><button className="ghost menu-close" onClick={() => setMenu(false)} aria-label="Close menu">✕</button></div>
         <nav>{nav}</nav>
         <div className="sidebar-foot">
