@@ -113,17 +113,35 @@ export class AgentService {
     return a;
   }
 
-  edit(id: string, patch: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>, by: string) {
-    const a = this.find(id);
-    if (a.status !== "pending") throw new HttpError(409, "Only pending items can be edited");
+  /** Checks a reviewer's edits and puts them on the draft, without saving. */
+  private change(a: ApprovalItem, patch: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>) {
     const allowed = a.payload.type === "social_post" ? ["text", "hashtags", "scheduledFor", "channel"] : ["subject", "body"];
     for (const k of Object.keys(patch)) if (!allowed.includes(k)) throw new HttpError(400, `Field ${k} cannot be edited`);
     if (a.payload.type === "social_post") this.checkSocialEdit(a, patch as Partial<SocialPostPayload>);
     Object.assign(a.payload, patch);
     a.edited = true;
+  }
+
+  edit(id: string, patch: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>, by: string) {
+    const a = this.find(id);
+    if (a.status !== "pending") throw new HttpError(409, "Only pending items can be edited");
+    this.change(a, patch);
     this.store.log(by, "edited draft", a.title);
     this.store.save();
     return a;
+  }
+
+  /** A decision can carry the reviewer's edits. They are kept only if the decision goes through, so one that fails leaves the draft as everyone else sees it. */
+  async decide(kind: "approve" | "reject", id: string, by: string, note?: string, patch?: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>) {
+    const a = this.find(id);
+    const before = { payload: structuredClone(a.payload), edited: a.edited };
+    try {
+      if (patch) this.change(a, patch);
+      return await this[kind](id, by, note);
+    } catch (e) {
+      a.payload = before.payload; a.edited = before.edited;
+      throw e;
+    }
   }
 
   async approve(id: string, by: string, note?: string) {

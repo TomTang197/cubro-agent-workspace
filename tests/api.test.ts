@@ -280,6 +280,12 @@ describe("staff switching", () => {
     await request(app).post(`/api/approvals/${second.id}/reject`).send({ user: "Priya Raman", payload: { to: { address: "x@example.com" } } }).expect(400);
     expect(second).toMatchObject({ status: "pending" });
     expect(second.edited).toBeFalsy();
+    const post = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "social_post")!;
+    const was = structuredClone(post.payload);
+    post.payload = { ...post.payload, scheduledFor: "2020-01-01T00:00:00.000Z" } as typeof post.payload;
+    await request(app).post(`/api/approvals/${post.id}/approve`).send({ user: "Aroha Ngata", payload: { text: "Wording that must not stick" } }).expect(409);
+    expect(post).toMatchObject({ status: "pending", payload: { ...was, scheduledFor: "2020-01-01T00:00:00.000Z" } });
+    expect(post.edited).toBeFalsy();
   });
   it("drops an assistant's drafts if the sample data is restored while it is still writing them", async () => {
     const store = new Store({ today });
