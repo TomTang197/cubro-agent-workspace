@@ -24,7 +24,7 @@ export default function Overview() {
           <p className="muted small">Weeks start on Monday. After the time spent reviewing drafts, including ones that were rejected.{data.weekly.some((w) => w.week === t.currentWeek) ? " This week is still in progress." : ""}</p>
           <div style={{ height: 240 }}>
             <ResponsiveContainer>
-              <BarChart data={data.weekly}>
+              <BarChart data={data.weekly} stackOffset="sign">
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#0000001a" />
                 <XAxis dataKey="week" tickFormatter={week} fontSize={12} />
                 <YAxis fontSize={12} width={30} />
