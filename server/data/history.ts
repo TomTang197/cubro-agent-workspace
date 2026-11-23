@@ -1,5 +1,6 @@
 import { buildSocialDrafts, handledSupplierKeys, LOW_STOCK_REPEAT_DAYS, planSupplierDrafts, supplierRunSummary, type Draft } from "../agents/drafts.js";
 import { toApproval } from "../agents/service.js";
+import { nzDate, nzTime, savingFor } from "../savings.js";
 import type { ActivityEntry, AgentRun, ApprovalItem, SavingsEntry, Settings } from "../store.js";
 import { addDays, createRng, isoDate } from "./rng.js";
 import type { SystemData } from "./seed.js";
@@ -10,7 +11,9 @@ const REJECT_NOTES = ["Already spoke to them by phone", "Wrong image for this pr
 /** Eight weeks of past agent activity so the savings tracker and audit trail have real history. */
 export function generateHistory(systems: SystemData, settings: Settings, today: Date, seed = 20261123) {
   const rng = createRng(seed + 7);
-  today = new Date(isoDate(today) + "T00:00:00Z");
+  const now = today;
+  // Days are New Zealand calendar days: runs start at 7am NZ time and staff decide the same morning.
+  today = new Date(nzDate(now) + "T00:00:00Z");
   const approvals: ApprovalItem[] = [];
   const runs: AgentRun[] = [];
   const savings: SavingsEntry[] = [];
@@ -32,7 +35,7 @@ export function generateHistory(systems: SystemData, settings: Settings, today: 
     jobs.push({ agent: "supplier-outreach", drafts: supplierDrafts.slice(0, supplierCount) });
 
     for (const job of jobs) {
-      const at = new Date(date.getTime() + (job.agent === "social-media" ? 18.5 : 18) * 3600_000).toISOString();
+      const at = nzTime(isoDate(date), job.agent === "social-media" ? 7.5 : 7).toISOString();
       const run: AgentRun = { id: id("run"), agent: job.agent, startedAt: at, finishedAt: at, triggeredBy: "Schedule", provider: "Built-in templates", itemsCreated: job.drafts.length, steps: [], summary: job.agent === "supplier-outreach" ? supplierRunSummary({ drafts: job.drafts, heldBack: 0 }) : `${job.drafts.length} drafts for review` };
       runs.unshift(run);
       for (const d of job.drafts) {
@@ -46,18 +49,15 @@ export function generateHistory(systems: SystemData, settings: Settings, today: 
         if (rejected) a.reviewerNote = rng.pick(REJECT_NOTES);
         approvals.unshift(a);
         activity.unshift({ id: id("act"), at: a.decidedAt, actor: by, action: a.status, detail: a.title });
-        if (!rejected) {
-          const rate = settings.hourlyRates[job.agent];
-          const assisted = a.estimate.reviewMinutes + (a.edited ? 4 : 0);
-          const minutesSaved = a.estimate.manualMinutes - assisted;
-          savings.unshift({ id: id("sav"), date: a.decidedAt.slice(0, 10), agent: job.agent, approvalId: a.id, description: a.title, manualMinutes: a.estimate.manualMinutes, agentAssistedMinutes: assisted, minutesSaved, hourlyRate: rate, dollarsSaved: Math.round((minutesSaved / 60) * rate * 100) / 100 });
-        }
+        savings.unshift({ id: id("sav"), ...savingFor(a, settings.hourlyRates[job.agent]) });
       }
     }
   }
+  // Newest decision first, like the live ledger.
+  savings.sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
   // Today's queue, waiting for staff.
   const pending: ApprovalItem[] = [];
-  const runAt = new Date(today.getTime() - 5 * 3600_000).toISOString();
+  const runAt = new Date(Math.min(nzTime(isoDate(today), 7).getTime(), now.getTime())).toISOString();
   const sRun: AgentRun = { id: id("run"), agent: "supplier-outreach", startedAt: runAt, finishedAt: runAt, triggeredBy: "Schedule", provider: "Built-in templates", itemsCreated: 0, steps: [], summary: "" };
   const sPlan = planSupplierDrafts(systems.inforln, settings, today, { exclude: handledSupplierKeys(approvals, today) });
   const sDrafts = sPlan.drafts;

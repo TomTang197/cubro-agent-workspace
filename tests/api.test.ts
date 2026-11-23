@@ -58,12 +58,13 @@ describe("api", () => {
     expect(store.state.systems.m365.teamsPosts[0].channel).toBe("Marketing");
   });
 
-  it("rejecting records no savings", async () => {
+  it("rejecting counts the review time as a cost", async () => {
     const { app, store } = setup();
-    const item = store.state.approvals.find((a) => a.status === "pending")!;
+    const item = store.state.approvals.find((a) => a.status === "pending" && a.kind === "supplier_email")!;
     const savings = store.state.savings.length;
-    await request(app).post(`/api/approvals/${item.id}/reject`).send({ note: "Not now" }).expect(200);
-    expect(store.state.savings.length).toBe(savings);
+    await request(app).post(`/api/approvals/${item.id}/reject`).send({ user: "Priya Raman", note: "Not now" }).expect(200);
+    expect(store.state.savings.length).toBe(savings + 1);
+    expect(store.state.savings[0]).toMatchObject({ outcome: "rejected", approvalId: item.id, reviewer: "Priya Raman", manualMinutes: 0, agentAssistedMinutes: 3, minutesSaved: -3, dollarsSaved: -2.3 });
   });
 
   it("running supplier outreach does not duplicate drafts already waiting", async () => {
