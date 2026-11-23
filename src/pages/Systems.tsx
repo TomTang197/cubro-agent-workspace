@@ -76,9 +76,9 @@ function GoLive({ st }: { st: ConnectorStatus }) {
   return (
     <details className="card golive" open={st.mode === "live" && !st.connected}>
       <summary><b>{st.mode === "mock" ? `Switching ${st.name} to the real system` : `${st.name} connection settings`}</b> <span className="small muted">{provided} of {required.length} required settings provided</span></summary>
-      <p className="small">For IT. The live connector calls the {st.api}. Set the values below as environment variables on the server, set <code>CONNECTOR_{st.system.toUpperCase()}=live</code> and restart. The other systems can stay on sample data. Values are never shown here, only whether each one is present.</p>
-      <table className="table"><thead><tr><th>Setting</th><th>Environment variable</th><th>What it is</th><th>Status</th></tr></thead>
-        <tbody>{st.settings.map((s) => <tr key={s.key}><td>{s.label}{!s.required && <span className="muted"> (optional)</span>}</td><td><code>{s.key}</code></td><td className="small">{s.help}</td><td>{s.set ? pill("Provided", "ok") : s.required ? pill("Missing", "warn") : pill("Not set")}</td></tr>)}</tbody></table>
+      <p className="small">For IT. The live connector calls the {st.api}. Set the values below as environment variables on the server, set <code>CONNECTOR_{st.system.toUpperCase()}=live</code> and restart. The other systems can stay on sample data. Values are never shown here, only whether each one is present. A real system only connects once the workspace has a sign-in password (<code>WORKSPACE_PASSWORD</code>), so that only staff can open it.</p>
+      <div className="scroll"><table className="table"><thead><tr><th>Setting</th><th>Environment variable</th><th>What it is</th><th>Status</th></tr></thead>
+        <tbody>{st.settings.map((s) => <tr key={s.key}><td>{s.label}{!s.required && <span className="muted"> (optional)</span>}</td><td><code>{s.key}</code></td><td className="small">{s.help}</td><td>{s.set ? pill("Provided", "ok") : s.required ? pill("Missing", "warn") : pill("Not set")}</td></tr>)}</tbody></table></div>
     </details>
   );
 }

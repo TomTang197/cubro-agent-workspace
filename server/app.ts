@@ -1,11 +1,12 @@
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { ESTIMATES } from "./agents/drafts.js";
 import { AGENTS, AgentService, HttpError } from "./agents/service.js";
 import { ConnectorError, failedStatus, isSystemId, SYSTEM_IDS, type FetchLike } from "./connectors/config.js";
-import { createConnectors, isLive } from "./connectors/index.js";
+import { createConnectors, isLive, workspacePassword } from "./connectors/index.js";
 import type { SfObjects, SystemId } from "./connectors/types.js";
 import { addDays, isoDate } from "./data/rng.js";
 import { createLlm, type LlmProvider } from "./llm/index.js";
@@ -24,6 +25,17 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
   const agents = new AgentService(store, connectors, opts.llm ?? createLlm(opts.env), opts.now);
   const app = express();
   app.use(cors());
+  // With WORKSPACE_PASSWORD set, the browser asks for it before any page or record is served. Real systems stay disconnected without one.
+  const password = workspacePassword(env);
+  if (password) {
+    const digest = (v: string) => crypto.createHash("sha256").update(v).digest();
+    app.use((req, res, next) => {
+      const [scheme, value] = (req.header("authorization") ?? "").split(" ");
+      const given = scheme?.toLowerCase() === "basic" ? Buffer.from(value ?? "", "base64").toString("utf8") : "";
+      if (req.path === "/api/health" || crypto.timingSafeEqual(digest(given.slice(given.indexOf(":") + 1)), digest(password))) return next();
+      res.status(401).set("WWW-Authenticate", 'Basic realm="Cubro agent workspace", charset="UTF-8"').json({ error: "Sign in with the workspace password to continue." });
+    });
+  }
   app.use(express.json({ limit: "1mb" }));
   const api = express.Router();
   const user = (req: Request) => String(req.body?.user ?? req.header("x-cubro-user") ?? "Staff member");

@@ -1,3 +1,4 @@
+import express from "express";
 import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../server/app";
@@ -24,7 +25,12 @@ function fakeFetch(routes: [string, Route][]) {
   return { fetchImpl, calls };
 }
 const noNetwork: FetchLike = async (url) => { throw new Error(`unexpected request to ${url}`); };
-const app = (env: Record<string, string>, fetchImpl: FetchLike = noNetwork) => createApp(new Store({ today }), { llm: templateProvider, env, fetch: fetchImpl });
+const signIn = `Basic ${Buffer.from("anyone:kōwhai-42").toString("base64")}`;
+/** A workspace with a sign-in password, and every request already signed in, unless the test is about signing in. */
+const app = (env: Record<string, string>, fetchImpl: FetchLike = noNetwork, password: string | null = "kōwhai-42") => {
+  const inner = createApp(new Store({ today }), { llm: templateProvider, env: { ...env, ...(password ? { WORKSPACE_PASSWORD: password } : {}) }, fetch: fetchImpl });
+  return password ? express().use((req, _res, next) => { req.headers.authorization ??= signIn; next(); }).use(inner) : inner;
+};
 
 const SF = { SALESFORCE_INSTANCE_URL: "https://cubro.my.salesforce.test/", SALESFORCE_CLIENT_ID: "id", SALESFORCE_CLIENT_SECRET: "sf-secret-value" };
 const CU = { CLICKUP_API_TOKEN: "pk_test", CLICKUP_LISTS: '{"Marketing":"901","Purchasing":"902"}', CLICKUP_USERS: '{"Priya Raman":4411}' };
@@ -86,6 +92,30 @@ describe("connected systems API", () => {
     }
   });
 
+  it("asks for the workspace password before serving anything, once one is set", async () => {
+    const a = createApp(new Store({ today }), { llm: templateProvider, env: { WORKSPACE_PASSWORD: "kōwhai-42" }, fetch: noNetwork });
+    const refused = await request(a).get("/api/systems/salesforce/accounts").expect(401);
+    expect(refused.headers["www-authenticate"]).toContain("Basic");
+    expect(JSON.stringify(refused.body)).not.toContain("Hospital");
+    await request(a).post("/api/approvals/any/approve").send({ user: "Priya Raman" }).expect(401);
+    await request(a).get("/api/systems").set("authorization", `Basic ${Buffer.from("priya:wrong").toString("base64")}`).expect(401);
+    await request(a).get("/api/health").expect(200);
+    const ok = await request(a).get("/api/systems/salesforce/accounts").set("authorization", signIn).expect(200);
+    expect(ok.body.length).toBeGreaterThan(0);
+  });
+
+  it("does not connect a real system while the workspace has no password", async () => {
+    const { fetchImpl, calls } = fakeFetch([token]);
+    const a = app({ CONNECTOR_SALESFORCE: "live", ...SF }, fetchImpl, null);
+    const res = await request(a).get("/api/systems").expect(200);
+    expect(res.body[1]).toMatchObject({ system: "salesforce", mode: "live", connected: false });
+    expect(res.body[1].error).toContain("WORKSPACE_PASSWORD");
+    expect((await request(a).get("/api/systems/salesforce/accounts").expect(502)).body.error).toContain("no sign-in password");
+    expect((await request(a).post("/api/systems/salesforce/test").send({}).expect(200)).body.connected).toBe(false);
+    expect(calls).toHaveLength(0);
+    await request(a).get("/api/systems/inforln/items").expect(200);
+  });
+
   it("reports a live system that rejects the credentials without failing the page", async () => {
     const { fetchImpl } = fakeFetch([["/services/oauth2/token", () => new Response('{"error":"invalid_client"}', { status: 401 })]]);
     const res = await request(app({ CONNECTOR_SALESFORCE: "live", ...SF }, fetchImpl)).get("/api/systems").expect(200);
@@ -133,6 +163,7 @@ describe("live Salesforce connector", () => {
     const status = await sf.status();
     expect(status).toMatchObject({ mode: "live", connected: true, records: { accounts: 42, cases: 42 } });
     expect(status.detail).toContain("cubro.my.salesforce.test");
+    expect(calls.some((c) => c.url.includes("SELECT COUNT() FROM Task"))).toBe(true);
   });
 });
 
@@ -157,6 +188,11 @@ describe("live ClickUp connector", () => {
     expect(created).toMatchObject({ id: "86cx1", list: "Purchasing", status: "to do", assignees: ["Priya Raman"], url: "https://app.clickup.com/t/86cx1" });
     expect(calls[0].method).toBe("POST");
     expect(JSON.parse(calls[0].body)).toMatchObject({ name: "Follow up PO41783", assignees: [4411], tags: ["supplier-outreach"] });
+    // The due date is sent as a time that is the 27th in New Zealand and everywhere west of it, not midnight UTC.
+    const due = JSON.parse(calls[0].body).due_date;
+    expect(new Date(due).toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" })).toBe("2026-11-27");
+    expect(new Date(due).toLocaleDateString("en-CA", { timeZone: "America/Los_Angeles" })).toBe("2026-11-26");
+    expect(new Date(due).toISOString()).toBe("2026-11-27T05:00:00.000Z");
     await expect(cu.createTask({ name: "x", description: "", list: "Sales", assignees: [], due_date: null, tags: [] })).rejects.toThrow("No list ID is set for the Sales list");
   });
 });
@@ -195,6 +231,24 @@ describe("live Microsoft 365 connector", () => {
     const before = calls.length;
     await expect(m365.createDraft({ from: created.from, to: [{ name: "Kevin Zhao", address: "kevin@shunde-carefurniture.example.cn" }], subject: "x", body: "y" })).rejects.toThrow("sample-data address");
     expect(calls.length).toBe(before);
+  });
+  it("tries the mailbox, calendar, every Teams channel and the brand library in the connection check", async () => {
+    const routes: [string, Route][] = [
+      ["oauth2/v2.0/token", token[1]],
+      ["/mailFolders/inbox/messages", () => ({ value: [message], "@odata.count": 318 })],
+      ["/calendarView", () => ({ value: [] })],
+      ["/channels/19:abc/messages", () => ({ value: [] })],
+      ["/drive/root:/Brand/Photos:/children", () => ({ value: [{ id: "f1", name: "a.jpg", file: {} }] })],
+    ];
+    const good = fakeFetch(routes);
+    const status = await createLiveM365({ ...MS, M365_SHAREPOINT_FOLDER: "/Brand/Photos/" }, good.fetchImpl).status();
+    expect(status).toMatchObject({ connected: true, records: { "inbox emails": 318, "Teams channels": 1 } });
+    expect(status.detail).toContain("marketing@cubro.co.nz");
+    for (const part of ["/users/purchasing@cubro.co.nz/mailFolders/inbox", "/users/marketing@cubro.co.nz/calendarView", "/teams/team1/channels/19:abc/messages", "/sites/site1/drive/root:/Brand/Photos:/children"]) expect(good.calls.some((c) => c.url.includes(part)), part).toBe(true);
+    // A channel ID that Teams does not know fails the check instead of showing as connected.
+    const bad = await createLiveM365({ ...MS, M365_SHAREPOINT_FOLDER: "Brand/Photos", M365_TEAMS_CHANNELS: '{"Marketing":"19:abc","Purchasing":"19:wrong"}' }, fakeFetch(routes).fetchImpl).status();
+    expect(bad).toMatchObject({ connected: false });
+    expect(bad.error).toContain("404");
   });
   it("walks the SharePoint library and posts to Teams through the channel webhook", async () => {
     const { fetchImpl, calls } = fakeFetch([
@@ -240,6 +294,32 @@ describe("live Infor LN connector", () => {
   it("works out supplier lead time and on-time rate from the order history", async () => {
     const supplier = await createLiveInforLn(env, fakeFetch(routes).fetchImpl).getSupplier("SUP1001");
     expect(supplier).toMatchObject({ name: "Ningbo Kanghui Care Bed Co., Ltd", categories: ["Beds", "Bedroom furniture"], avgLeadTimeDays: 84, onTimeRate: 0.5 });
+  });
+  it("follows a relative next link from where the page came from", async () => {
+    const order = (n: string) => ({ order: n, supplier: "SUP1001", orderDate: "2026-11-02", plannedReceiptDate: "2027-01-25", status: "Open", buyer: "Priya Raman", currency: "NZD" });
+    const { fetchImpl, calls } = fakeFetch([
+      ["sso.test/token", token[1]],
+      ["Orders?$skiptoken=3", () => ({ value: [order("PO3")] })],
+      ["Orders?$skiptoken=2", () => ({ "@odata.context": "https://ion.test/CUBRO_PRD/LN/odata/$metadata#Orders", value: [order("PO2")], "@odata.nextLink": "Orders?$skiptoken=3" })],
+      ["LN/odata/Orders", () => ({ value: [order("PO1")], "@odata.nextLink": "Orders?$skiptoken=2" })],
+    ]);
+    const orders = await createLiveInforLn(LN, fetchImpl).listPurchaseOrders();
+    expect(orders.map((o) => o.order)).toEqual(["PO1", "PO2", "PO3"]);
+    expect(calls.slice(1).map((c) => c.url)).toEqual(["https://ion.test/CUBRO_PRD/LN/odata/Orders", "https://ion.test/CUBRO_PRD/LN/odata/Orders?$skiptoken=2", "https://ion.test/CUBRO_PRD/LN/odata/Orders?$skiptoken=3"]);
+  });
+  it("calls an order part received when one line is short, even if another line was over-received", async () => {
+    const order = (n: string, lines: [number, number][]) => ({ order: n, supplier: "SUP1001", orderDate: "2026-11-02", plannedReceiptDate: "2026-11-20", status: "", buyer: "Priya Raman", currency: "NZD", lines: lines.map(([quantity, received], i) => ({ line: (i + 1) * 10, item: "98100", quantity, received, price: 100 })) });
+    const { fetchImpl } = fakeFetch([["sso.test/token", token[1]], ["LN/odata/Orders", () => ({ value: [order("SHORT", [[10, 12], [5, 3]]), order("FULL", [[10, 12], [5, 5]]), order("NONE", [[10, 0]])] })]]);
+    const orders = await createLiveInforLn(LN, fetchImpl).listPurchaseOrders();
+    expect(orders.map((o) => [o.order, o.status])).toEqual([["SHORT", "Partially received"], ["FULL", "Received"], ["NONE", "Created"]]);
+  });
+  it("tries the order lines collection in the connection check when one is configured", async () => {
+    const good = fakeFetch(routes.map(([k, r]): [string, Route] => [k, k.startsWith("LN/") ? () => ({ ...(r({} as Call) as object), "@odata.count": 7 }) : r]));
+    expect(await createLiveInforLn(env, good.fetchImpl).status()).toMatchObject({ connected: true, records: { items: 7, suppliers: 7, "purchase orders": 7 } });
+    expect(good.calls.some((c) => c.url.includes("LN/odata/OrderLines"))).toBe(true);
+    const bad = await createLiveInforLn({ ...env, INFORLN_PURCHASE_ORDER_LINES_PATH: "LN/odata/WrongLines" }, fakeFetch(routes).fetchImpl).status();
+    expect(bad).toMatchObject({ connected: false });
+    expect(bad.error).toContain("404");
   });
   it("says which settings are missing instead of calling out", async () => {
     const status = await createLiveInforLn({ INFORLN_ION_URL: LN.INFORLN_ION_URL }, noNetwork).status();

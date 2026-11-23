@@ -24,7 +24,8 @@ All four systems start on deterministic sample data (`server/data/seed.ts`, comp
 Going live, one system at a time:
 
 1. Set the system's settings as environment variables on the server. The Connected systems page lists each one in plain words with what it is for and whether it is set (`server/connectors/config.ts` is the source); values never reach the browser.
-2. Set its `CONNECTOR_…=live` switch and restart.
+2. Set `WORKSPACE_PASSWORD`. The browser then asks every visitor for it (any user name), and a system switched to live refuses to connect until it is set, so live records and approvals are never open to anyone who has the address. It is one shared password: who approved something is still the name picked in the workspace, so put the app behind your single sign-on if approvals need to be tied to a person.
+3. Set its `CONNECTOR_…=live` switch and restart.
 3. Open Connected systems and press **Test connection**. The card shows the record counts read from the real system, or the reason it could not connect. A system that fails does not affect the other three.
 
 Things that differ per Cubro tenant are settings, not code: Salesforce custom field names (`SALESFORCE_FIELDS`), ClickUp list and user IDs, the Infor LN service paths and property names (`INFORLN_FIELDS`), Teams channel IDs and posting webhooks. The live clients have been tested against recorded-shape responses (`tests/connectors.test.ts`), not against Cubro's own tenants, so expect to adjust those mappings on first connection.

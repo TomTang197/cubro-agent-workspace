@@ -59,7 +59,7 @@ textarea { width:100%; resize:vertical; line-height:1.5; } textarea:disabled, in
 .agent-card h3 { margin:0; font-size:15px; }
 .plain { margin:4px 0 0; padding-left:18px; }
 .sys-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-bottom:8px; } .card.sys { color:var(--text); display:flex; flex-direction:column; gap:6px; margin:0; } .card.sys.sel { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
-.golive summary { cursor:pointer; display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; } .golive[open] summary { margin-bottom:8px; } .golive .table td { white-space:normal; }
+.golive { min-width:0; } .golive summary { cursor:pointer; display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; } .golive[open] summary { margin-bottom:8px; } .golive .table td { white-space:normal; }
 .top { margin:12px 0 0; }
 .banner { background:#18794E14; border:1px solid #18794E40; padding:10px 14px; border-radius:var(--radius); margin-bottom:16px; }
 .error { color:var(--bad); background:#C0392B0f; padding:8px 12px; border-radius:var(--radius); margin-bottom:12px; }
