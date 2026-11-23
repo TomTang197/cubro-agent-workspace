@@ -165,3 +165,15 @@ describe("drafting model", () => {
     }
   });
 });
+
+describe("events just past the plan", () => {
+  it("are promoted in the week before, inside the plan", async () => {
+    const { app, store } = setup();
+    const start = nzTime(shiftDay(nzDay(today), DEFAULT_SETTINGS.social.horizonDays + 3), 10, 0).toISOString();
+    store.state.systems.m365.events.push({ ...store.state.systems.m365.events[0], id: "late-show", subject: "Rehab Expo", category: "Trade show", start });
+    await request(app).post("/api/agents/social-media/run").send({ user: "Aroha Ngata" }).expect(200);
+    const drafted = store.state.approvals.find((a) => a.status === "pending" && a.title.includes("Event: Rehab Expo"))!;
+    expect(drafted).toBeDefined();
+    expect(nzDay(post(drafted).scheduledFor) < nzDay(start)).toBe(true);
+  });
+});

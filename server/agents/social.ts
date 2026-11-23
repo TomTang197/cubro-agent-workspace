@@ -26,7 +26,8 @@ interface Idea {
 
 const STORY_LOOKBACK_DAYS = 90;
 const LAUNCH_LOOKBACK_DAYS = 30;
-const EVENT_LEAD_DAYS = 7;
+/** An event is promoted in the week before it, so the planner looks this far past the plan for events. */
+export const EVENT_LEAD_DAYS = 7;
 const MAX_STORIES = 2;
 const MAX_WAITING_PER_CAMPAIGN = 2;
 const CAMPAIGN_FULL = "campaign-full:";

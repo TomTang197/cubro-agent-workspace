@@ -4,7 +4,7 @@ import type { LlmProvider } from "../llm/index.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
 import { buildSupplierDrafts, type Draft } from "./drafts.js";
 import { nzClock, nzDay, shortDay } from "./nzTime.js";
-import { buildSocialDrafts, socialBrief, takenSocialTopics } from "./social.js";
+import { EVENT_LEAD_DAYS, buildSocialDrafts, socialBrief, takenSocialTopics } from "./social.js";
 
 export const AGENTS: Record<AgentId, { name: string; description: string; team: string; reads: string[]; writes: string[] }> = {
   "social-media": {
@@ -41,8 +41,9 @@ export class AgentService {
       ]);
       step("Salesforce", "SOQL query", `${campaigns.length} campaigns, ${cases.length} cases, ${accounts.length} accounts`);
       step("Infor LN", "Item BOD", `${items.length} items`);
-      const events = await this.connectors.m365.listEvents(today.toISOString(), addDays(today, settings.social.horizonDays).toISOString());
-      step("Microsoft 365", "Graph calendarView", `${events.length} events in the next ${settings.social.horizonDays} days`);
+      const lookAhead = settings.social.horizonDays + EVENT_LEAD_DAYS;
+      const events = await this.connectors.m365.listEvents(today.toISOString(), addDays(today, lookAhead).toISOString());
+      step("Microsoft 365", "Graph calendarView", `${events.length} events in the next ${lookAhead} days`);
       step("Microsoft 365", "SharePoint drive", `${assets.length} brand assets`);
       const mine = this.store.state.approvals.filter((a) => a.agent === agent);
       const taken = takenSocialTopics(mine, today, settings.social.horizonDays);
