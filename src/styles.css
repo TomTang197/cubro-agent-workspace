@@ -69,3 +69,7 @@ code { background:#0000000a; padding:1px 4px; border-radius:3px; font-size:12px;
 }
 .field-hint { margin:-8px 0 12px; text-align:right; }
 .pair { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:0 16px; }
+.table tfoot td { font-weight:600; border-top:2px solid var(--border); border-bottom:none; background:#00000004; }
+.pad-head { padding:14px 16px 0; } .pad-foot { padding:10px 16px 12px; margin:0; } .nowrap { white-space:nowrap; }
+.plain-table th { background:none; } .plain-table td, .plain-table th { padding-left:0; }
+.grid2 > * { min-width:0; } .stats strong { white-space:nowrap; } .pill.plain { text-transform:none; }

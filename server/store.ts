@@ -69,10 +69,16 @@ export interface AgentRun {
 
 export interface SavingsEntry {
   id: string;
+  /** New Zealand calendar day of the decision. */
   date: string;
+  decidedAt: string;
   agent: AgentId;
   approvalId?: string;
   description: string;
+  /** Rejected drafts are kept in the ledger: they save nothing and cost the review time. */
+  outcome: "approved" | "rejected";
+  edited: boolean;
+  reviewer?: string;
   manualMinutes: number;
   agentAssistedMinutes: number;
   minutesSaved: number;
@@ -117,7 +123,7 @@ export const DEFAULT_SETTINGS: Settings = {
   supplier: { lowStockCoverageWeeks: 6, overdueGraceDays: 3, maxEmailsPerRun: 10, sender: "Priya Raman" },
 };
 
-const STATE_VERSION = 1;
+const STATE_VERSION = 2;
 
 export class Store {
   state: WorkspaceState;
