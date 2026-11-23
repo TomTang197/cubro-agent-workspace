@@ -8,6 +8,7 @@ import { createConnectors } from "./connectors/index.js";
 import { addDays, isoDate } from "./data/rng.js";
 import { createLlm, type LlmProvider } from "./llm/index.js";
 import { AGENT_IDS, EDIT_MINUTES, nzDate, periodStart, summarise, weekStart } from "./savings.js";
+import { mergeSettings, validateSettings } from "./settings.js";
 import type { AgentId, Store } from "./store.js";
 
 const wrap = (fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res)).then((r) => { if (!res.headersSent) res.json(r); }).catch(next);
@@ -93,15 +94,15 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
 
   api.get("/settings", wrap(() => store.state.settings));
   api.put("/settings", wrap((req) => {
-    const s = store.state.settings;
     const b = req.body ?? {};
-    if (b.hourlyRates) Object.assign(s.hourlyRates, b.hourlyRates);
-    if (b.social) Object.assign(s.social, b.social);
-    if (b.supplier) Object.assign(s.supplier, b.supplier);
-    if (b.agents) for (const k of Object.keys(b.agents) as AgentId[]) Object.assign(s.agents[agentId(k)], b.agents[k]);
+    if (b.agents && typeof b.agents === "object") for (const k of Object.keys(b.agents)) agentId(k);
+    const next = mergeSettings(store.state.settings, b);
+    const problems = Object.values(validateSettings(next));
+    if (problems.length) throw new HttpError(400, problems.join(" "));
+    store.state.settings = next;
     store.log(user(req), "updated settings", "Agent settings changed");
     store.save();
-    return s;
+    return next;
   }));
   api.post("/reset", wrap(() => { store.reset(); return { ok: true }; }));
 
