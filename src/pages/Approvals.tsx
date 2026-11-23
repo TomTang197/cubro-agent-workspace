@@ -74,7 +74,7 @@ function Detail({ item, onDone, onDirty, nextId }: { item: ApprovalItem; onDone:
   useEffect(() => { onDirty(pending && dirty && !result); return () => onDirty(false); }, [pending, dirty, result]);
 
   // A draft approved days after it was written would ask the supplier to reply by a date that has gone.
-  const lateReplyBy = pending && p.type === "supplier_email" && p.replyBy && p.replyBy < todayNz() && text.includes(weekday(p.replyBy)) ? weekday(p.replyBy) : undefined;
+  const lateReplyBy = pending && !started && p.type === "supplier_email" && p.replyBy && p.replyBy < todayNz() && text.includes(weekday(p.replyBy)) ? weekday(p.replyBy) : undefined;
 
   async function act(kind: "approve" | "reject") {
     if (kind === "approve" && lateReplyBy && !window.confirm(`This email asks for a reply by ${lateReplyBy}, which has passed. Send it anyway?`)) return;
@@ -116,7 +116,7 @@ function Detail({ item, onDone, onDirty, nextId }: { item: ApprovalItem; onDone:
           <textarea rows={14} value={text} disabled={!pending || started} onChange={(e) => setText(e.target.value)} /></label>
       )}
       {lateReplyBy && !result && <div className="error" role="alert">This email asks for a reply by {lateReplyBy}, which has passed. Change the date before you send it.</div>}
-      {pending && !result && signOff && signedBy && signedBy !== me && <p className="small sign-note">This email is signed <b>{signedBy}</b>, the name the agent uses for every supplier email (set in Settings), and you are approving as <b>{me}</b>. <button type="button" className="link" onClick={signAsMe}>Sign it as {me} instead</button></p>}
+      {pending && !result && !started && signOff && signedBy && signedBy !== me && <p className="small sign-note">This email is signed <b>{signedBy}</b>, the name the agent uses for every supplier email (set in Settings), and you are approving as <b>{me}</b>. <button type="button" className="link" onClick={signAsMe}>Sign it as {me} instead</button></p>}
       <p className="small muted">Doing this by hand: ~{item.estimate.manualMinutes} min. Reviewing the draft: ~{item.estimate.reviewMinutes} min{item.edited ? " (+4 min for edits)" : ""}.</p>
       {pending && !result && <>
         <label className="field"><span>Note (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why you rejected it, or anything the team should know" /></label>
