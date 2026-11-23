@@ -18,12 +18,12 @@ export default function Agents() {
   }
   return (
     <>
-      <div className="page-head"><div><h1>Agents</h1><p className="muted">Each agent reads from the company's systems, drafts work, and waits for a person to approve it. “Run now” makes an agent check for new work straight away; anything it drafts lands in Approvals.</p></div></div>
+      <div className="page-head"><div><h1>Agents</h1><p className="muted">Each agent reads from the company's systems, drafts work, and waits for a person to approve it. During the pilot an agent only runs when someone presses “Run now”; the planned times are not switched on yet. Anything it drafts lands in Approvals.</p></div></div>
       {error && <div className="error">{error}</div>}
       {!data && !error && <div className="muted">Loading…</div>}
       {data?.map((a) => (
         <section className="card" key={a.id}>
-          <div className="row between wrap agent-head"><div><h2>{a.name} {!a.enabled && <span className="pill warn">Paused</span>}</h2><p className="muted small">{a.team} · owner {a.owner} · {a.enabled ? `scheduled ${a.schedule}` : "paused"}</p></div>
+          <div className="row between wrap agent-head"><div><h2>{a.name} {!a.enabled && <span className="pill warn">Paused</span>}</h2><p className="muted small">{a.team} · owner {a.owner} · {a.enabled ? `planned for ${a.schedule}` : "paused"}</p></div>
             <button className="btn primary" disabled={!!busy || !a.enabled} onClick={() => run(a.id)}>{busy === a.id ? "Running…" : "Run now"}</button></div>
           {!a.enabled && <p className="small muted">This agent is paused. Turn it back on in <Link to="/settings">Settings</Link> to run it.</p>}
           {last?.agent === a.id && <div className="banner" role="status">Run finished: {last.summary}. {last.itemsCreated > 0 && <Link to={`/approvals?agent=${a.id}`}>Review them</Link>}</div>}

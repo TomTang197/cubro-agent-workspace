@@ -44,7 +44,7 @@ export default function Overview() {
         {data.agents.map((a) => (
           <section className="card agent-card" key={a.id}>
             <div className="row between"><h3>{a.name}</h3><span className={`pill ${a.enabled ? "ok" : ""}`}>{a.enabled ? "Active" : "Paused"}</span></div>
-            <p className="muted small">{a.team} · owner {a.owner} · runs {a.schedule}</p>
+            <p className="muted small">{a.team} · owner {a.owner} · {a.enabled ? `planned for ${a.schedule}` : "paused"}</p>
             <p>{a.description}</p>
             <div className="stats">
               <div><strong>{a.pending}</strong><span>pending</span></div>
