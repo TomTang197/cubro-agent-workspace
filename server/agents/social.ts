@@ -131,7 +131,8 @@ export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date
   }
 
   const running = d.campaigns
-    .filter((c) => c.StartDate <= last && c.EndDate >= first && !upcoming.some(({ e }) => sameName(e.subject, c.Name)))
+    // An event post covers a campaign only when they are the same thing on the same day.
+    .filter((c) => c.StartDate <= last && c.EndDate >= first && !upcoming.some(({ e, day }) => sameName(e.subject, c.Name) && c.StartDate === c.EndDate && c.StartDate === day))
     .sort((a, b) => Number(b.Status === "In Progress") - Number(a.Status === "In Progress") || a.StartDate.localeCompare(b.StartDate));
   for (const c of running) {
     const oneDay = c.StartDate === c.EndDate;
@@ -143,7 +144,10 @@ export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date
     if (oneDay && taken.has(`${CAMPAIGN_SEEN}${c.Id}`)) continue;
     const ready = c.ProductSkus.map(item).filter((p): p is Item => !!p && launched(p, latest));
     const pictured = ready.filter((p) => d.assets.some((a) => a.productSku === p.item));
-    const stocked = (pictured.length ? pictured : ready).filter((p, _, all) => p.onHand > 0 || all.every((x) => x.onHand <= 0));
+    const inStock = (pictured.length ? pictured : ready).filter((p, _, all) => p.onHand > 0 || all.every((x) => x.onHand <= 0));
+    // Leave the product an event post already shows to that post.
+    const notShown = inStock.filter((p) => !ideas.event.some((e) => e.skus.includes(p.item)));
+    const stocked = notShown.length ? notShown : inStock;
     // Each run offers a fresh product for the campaign, unless enough posts for it are already waiting.
     const fresh = stocked.map((_, i) => stocked[(offset + i) % stocked.length]).filter((x) => !taken.has(`campaign:${c.Id}:${x.item}`));
     if (taken.has(`${CAMPAIGN_FULL}${c.Id}`) || (stocked.length > 0 && !fresh.length)) continue;

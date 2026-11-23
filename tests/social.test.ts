@@ -177,3 +177,20 @@ describe("events just past the plan", () => {
     expect(nzDay(post(drafted).scheduledFor) < nzDay(start)).toBe(true);
   });
 });
+
+describe("an event named like a campaign", () => {
+  const campaign = { ...data.campaigns[0], Id: "c-roadshow", Name: "Summer roadshow", Status: "In Progress" as const, StartDate: shiftDay(nzDay(today), 2), EndDate: shiftDay(nzDay(today), 12) };
+  const event = (day: string) => ({ ...data.events[0], id: "e-roadshow", subject: "Summer roadshow", category: "Trade show" as const, start: nzTime(day, 10, 0).toISOString() });
+  const titles = (c: typeof campaign, day: string) => buildSocialDrafts({ ...data, campaigns: [c], events: [event(day)], cases: [], items: data.items.map((i) => ({ ...i, isNew: false })) }, DEFAULT_SETTINGS, today).map((d) => d.title.replace(/^\w+: /, ""));
+
+  it("does not hide a campaign that runs on other days", () => {
+    const got = titles(campaign, shiftDay(nzDay(today), 5));
+    expect(got).toContain("Event: Summer roadshow");
+    expect(got.some((t) => t.startsWith("Summer roadshow"))).toBe(true);
+  });
+
+  it("stands in for a one-day campaign on the same day", () => {
+    const day = shiftDay(nzDay(today), 5);
+    expect(titles({ ...campaign, StartDate: day, EndDate: day }, day)).toEqual(["Event: Summer roadshow"]);
+  });
+});
