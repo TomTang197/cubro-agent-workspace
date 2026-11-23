@@ -2,10 +2,12 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import fs from "node:fs";
 import path from "node:path";
+import { ESTIMATES } from "./agents/drafts.js";
 import { AGENTS, AgentService, HttpError } from "./agents/service.js";
 import { createConnectors } from "./connectors/index.js";
 import { addDays, isoDate } from "./data/rng.js";
 import { createLlm, type LlmProvider } from "./llm/index.js";
+import { AGENT_IDS, EDIT_MINUTES, nzDate, periodStart, summarise, weekStart } from "./savings.js";
 import type { AgentId, Store } from "./store.js";
 
 const wrap = (fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res)).then((r) => { if (!res.headersSent) res.json(r); }).catch(next);
@@ -26,37 +28,36 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
     const s = store.state;
     const pending = s.approvals.filter((a) => a.status === "pending");
     const decided = s.approvals.filter((a) => a.status !== "pending");
-    const since = isoDate(addDays(new Date(), -30));
-    const last30 = s.savings.filter((x) => x.date >= since);
+    const approved = decided.filter((a) => a.status === "approved").length;
+    const today = nzDate(new Date());
+    const since30 = periodStart(today, 30);
     const weekly = new Map<string, { week: string; "social-media": number; "supplier-outreach": number; dollars: number }>();
     for (const e of s.savings) {
-      const d = new Date(e.date + "T00:00:00Z");
-      const monday = isoDate(addDays(d, -((d.getUTCDay() + 6) % 7)));
+      const monday = weekStart(e.date);
       const w = weekly.get(monday) ?? { week: monday, "social-media": 0, "supplier-outreach": 0, dollars: 0 };
       w[e.agent] += e.minutesSaved / 60; w.dollars += e.dollarsSaved;
       weekly.set(monday, w);
     }
-    const perAgent = (Object.keys(AGENTS) as AgentId[]).map((id) => {
+    const perAgent = AGENT_IDS.map((id) => {
       const mine = s.approvals.filter((a) => a.agent === id);
       const dec = mine.filter((a) => a.status !== "pending");
-      const sav = s.savings.filter((x) => x.agent === id);
+      const ok = dec.filter((a) => a.status === "approved");
       return {
         id, ...AGENTS[id], ...s.settings.agents[id], pending: mine.filter((a) => a.status === "pending").length,
-        approvalRate: dec.length ? dec.filter((a) => a.status === "approved").length / dec.length : 0,
-        editRate: dec.length ? dec.filter((a) => a.edited).length / dec.length : 0,
-        hoursSaved: sav.reduce((n, x) => n + x.minutesSaved, 0) / 60, dollarsSaved: sav.reduce((n, x) => n + x.dollarsSaved, 0),
+        approvalRate: dec.length ? ok.length / dec.length : 0,
+        editRate: ok.length ? ok.filter((a) => a.edited).length / ok.length : 0,
+        saved: summarise(s.savings.filter((x) => x.agent === id)),
         lastRun: s.runs.find((r) => r.agent === id),
       };
     });
     return {
       totals: {
-        pending: pending.length, highPriority: pending.filter((a) => a.priority === "high").length, decided: decided.length,
-        approvalRate: decided.length ? decided.filter((a) => a.status === "approved").length / decided.length : 0,
-        hoursSaved: s.savings.reduce((n, x) => n + x.minutesSaved, 0) / 60, dollarsSaved: s.savings.reduce((n, x) => n + x.dollarsSaved, 0),
-        hoursSaved30: last30.reduce((n, x) => n + x.minutesSaved, 0) / 60, dollarsSaved30: last30.reduce((n, x) => n + x.dollarsSaved, 0),
-        pilotStart: s.savings.at(-1)?.date ?? isoDate(new Date()),
+        pending: pending.length, highPriority: pending.filter((a) => a.priority === "high").length, decided: decided.length, approved, rejected: decided.length - approved,
+        approvalRate: decided.length ? approved / decided.length : 0,
+        all: summarise(s.savings), last30: summarise(s.savings.filter((x) => x.date >= since30)),
+        pilotStart: s.savings.at(-1)?.date ?? today, since30, currentWeek: weekStart(today),
       },
-      weekly: [...weekly.values()].sort((a, b) => a.week.localeCompare(b.week)).map((w) => ({ ...w, "social-media": +w["social-media"].toFixed(1), "supplier-outreach": +w["supplier-outreach"].toFixed(1), dollars: Math.round(w.dollars) })),
+      weekly: [...weekly.values()].sort((a, b) => a.week.localeCompare(b.week)).map((w) => ({ ...w, dollars: Math.round(w.dollars * 100) / 100 })),
       agents: perAgent,
       activity: s.activity.slice(0, 12),
       provider: agents.providerName,
@@ -75,7 +76,19 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
   api.post("/approvals/:id/approve", wrap((req) => agents.approve(req.params.id, user(req), req.body?.note)));
   api.post("/approvals/:id/reject", wrap((req) => agents.reject(req.params.id, user(req), req.body?.note)));
 
-  api.get("/savings", wrap(() => ({ entries: store.state.savings, rates: store.state.settings.hourlyRates })));
+  api.get("/savings", wrap(() => {
+    const today = nzDate(new Date());
+    return {
+      entries: store.state.savings, rates: store.state.settings.hourlyRates, today, pilotStart: store.state.savings.at(-1)?.date ?? today,
+      assumptions: {
+        editMinutes: EDIT_MINUTES,
+        jobs: [
+          { agent: "social-media" as AgentId, job: "Social media post", ...ESTIMATES.social_post },
+          { agent: "supplier-outreach" as AgentId, job: "Supplier email", ...ESTIMATES.supplier_email },
+        ],
+      },
+    };
+  }));
   api.get("/activity", wrap(() => store.state.activity));
 
   api.get("/settings", wrap(() => store.state.settings));

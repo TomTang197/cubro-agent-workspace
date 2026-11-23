@@ -67,3 +67,7 @@ code { background:#0000000a; padding:1px 4px; border-radius:3px; font-size:12px;
   .menu-btn { display:block; } .content { padding:16px; } .split { grid-template-columns:1fr; } .list { position:static; max-height:320px; }
   .grid2 { grid-template-columns:1fr; } .stats { grid-template-columns:repeat(3,1fr); } .page-head { flex-direction:column; }
 }
+.table tfoot td { font-weight:600; border-top:2px solid var(--border); border-bottom:none; background:#00000004; }
+.pad-head { padding:14px 16px 0; } .pad-foot { padding:10px 16px 12px; margin:0; } .nowrap { white-space:nowrap; }
+.plain-table th { background:none; } .plain-table td, .plain-table th { padding-left:0; }
+.grid2 > * { min-width:0; } .stats strong { white-space:nowrap; } .pill.plain { text-transform:none; }

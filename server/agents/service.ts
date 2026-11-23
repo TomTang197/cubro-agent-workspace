@@ -1,6 +1,7 @@
 import type { Connectors } from "../connectors/index.js";
 import { addDays, isoDate } from "../data/rng.js";
 import type { LlmProvider } from "../llm/index.js";
+import { savingFor } from "../savings.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
 import { buildSocialDrafts, buildSupplierDrafts, type Draft } from "./drafts.js";
 
@@ -129,19 +130,14 @@ export class AgentService {
     const a = this.find(id);
     if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
     a.status = "rejected"; a.decidedAt = new Date().toISOString(); a.decidedBy = by; a.reviewerNote = note;
+    this.recordSaving(a);
     this.store.log(by, "rejected", `${a.title}${note ? ` — ${note}` : ""}`);
     this.store.save();
     return a;
   }
 
   private recordSaving(a: ApprovalItem) {
-    const rate = this.store.state.settings.hourlyRates[a.agent];
-    const assisted = a.estimate.reviewMinutes + (a.edited ? 4 : 0);
-    const minutesSaved = Math.max(0, a.estimate.manualMinutes - assisted);
-    this.store.state.savings.unshift({
-      id: this.store.nextId("sav"), date: (a.decidedAt ?? new Date().toISOString()).slice(0, 10), agent: a.agent, approvalId: a.id, description: a.title,
-      manualMinutes: a.estimate.manualMinutes, agentAssistedMinutes: assisted, minutesSaved, hourlyRate: rate, dollarsSaved: Math.round((minutesSaved / 60) * rate * 100) / 100,
-    });
+    this.store.state.savings.unshift({ id: this.store.nextId("sav"), ...savingFor(a, this.store.state.settings.hourlyRates[a.agent]) });
   }
 }
 
