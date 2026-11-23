@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { generateSystemData, type SystemData } from "./data/seed.js";
+import { generateSystemData, STAFF, type SystemData } from "./data/seed.js";
 import { generateHistory } from "./data/history.js";
 
 export type AgentId = "social-media" | "supplier-outreach";
@@ -23,7 +23,8 @@ export interface ApprovalItem {
   payload: SocialPostPayload | SupplierEmailPayload;
   originalPayload: SocialPostPayload | SupplierEmailPayload;
   estimate: { manualMinutes: number; reviewMinutes: number };
-  outcome?: { system: string; ref: string; label: string }[];
+  /** What approving has done so far. A step that is listed is not repeated when an approval that failed part-way is tried again. */
+  outcome?: { system: string; ref: string; label: string; step?: string }[];
 }
 
 export interface SocialPostPayload {
@@ -125,8 +126,10 @@ export const DEFAULT_SETTINGS: Settings = {
   supplier: { lowStockCoverageWeeks: 6, overdueGraceDays: 3, maxEmailsPerRun: 10, sender: "Priya Raman" },
 };
 
-// Bump when the shape of the sample data changes, so saved state from an older version is regenerated.
+// Bump when the shape of the sample data changes. Saved state from an older version gets new sample data; what staff did is carried over.
 const STATE_VERSION = 3;
+/** Records the sample data was seeded with have ids like apr-h1x; anything else was made by staff using the workspace. */
+const seeded = (id: string) => /^[a-z]+-h[0-9a-z]+$/.test(id);
 
 export class Store {
   state: WorkspaceState;
@@ -138,7 +141,38 @@ export class Store {
       this.file = path.join(opts.dataDir, "state.json");
     }
     const loaded = this.file && fs.existsSync(this.file) ? (JSON.parse(fs.readFileSync(this.file, "utf8")) as WorkspaceState) : undefined;
-    this.state = loaded && loaded.version === STATE_VERSION ? loaded : Store.fresh(opts.seed, opts.today);
+    if (!loaded || loaded.version === STATE_VERSION) { this.state = loaded ?? Store.fresh(opts.seed, opts.today); return; }
+    // The old file is kept beside the new one, so nothing is lost if the carry-over misses something.
+    fs.copyFileSync(this.file!, this.file!.replace(/\.json$/, `.v${loaded.version ?? 0}.json`));
+    this.state = Store.migrate(loaded, Store.fresh(opts.seed, opts.today));
+    this.save();
+  }
+
+  /** New sample data, with the settings staff chose and the drafts, decisions, runs, savings and activity they made carried over. */
+  static migrate(old: WorkspaceState, fresh: WorkspaceState): WorkspaceState {
+    const savings = (old.savings ?? []).filter((x) => !seeded(x.id));
+    const decided = new Set(savings.map((x) => x.approvalId));
+    // A seeded draft that staff decided keeps its record under a new id, since the new sample data reuses the old one.
+    const carried = (id: string) => (seeded(id) ? id.replace("-h", `-v${old.version ?? 0}h`) : id);
+    const approvals = (old.approvals ?? []).filter((a) => !seeded(a.id) || decided.has(a.id)).map((a) => ({ ...a, id: carried(a.id) }));
+    const names = new Set(STAFF.map((p) => p.name));
+    const settings = structuredClone(fresh.settings);
+    if (old.settings) {
+      Object.assign(settings.hourlyRates, old.settings.hourlyRates);
+      Object.assign(settings.social, old.settings.social);
+      Object.assign(settings.supplier, old.settings.supplier, names.has(old.settings.supplier?.sender) ? {} : { sender: settings.supplier.sender });
+      for (const k of Object.keys(settings.agents) as AgentId[]) {
+        const was = old.settings.agents?.[k];
+        if (was) Object.assign(settings.agents[k], was, names.has(was.owner) ? {} : { owner: settings.agents[k].owner });
+      }
+    }
+    return {
+      ...fresh, settings, counters: { ...old.counters },
+      approvals: [...approvals, ...fresh.approvals],
+      runs: [...(old.runs ?? []).filter((r) => !seeded(r.id)), ...fresh.runs],
+      savings: [...savings.map((x) => ({ ...x, approvalId: x.approvalId && carried(x.approvalId) })), ...fresh.savings].sort((a, b) => b.decidedAt.localeCompare(a.decidedAt)),
+      activity: [...(old.activity ?? []).filter((x) => !seeded(x.id)), ...fresh.activity].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 500),
+    };
   }
 
   static fresh(seed?: number, today = new Date()): WorkspaceState {
