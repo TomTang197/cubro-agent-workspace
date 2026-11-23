@@ -64,10 +64,16 @@ export interface AgentRun {
 
 export interface SavingsEntry {
   id: string;
+  /** New Zealand calendar day of the decision. */
   date: string;
+  decidedAt: string;
   agent: AgentId;
   approvalId?: string;
   description: string;
+  /** Rejected drafts are kept in the ledger: they save nothing and cost the review time. */
+  outcome: "approved" | "rejected";
+  edited: boolean;
+  reviewer?: string;
   manualMinutes: number;
   agentAssistedMinutes: number;
   minutesSaved: number;
@@ -113,7 +119,7 @@ export const DEFAULT_SETTINGS: Settings = {
 };
 
 // Bump when the shape of the sample data changes, so saved state from an older version is regenerated.
-const STATE_VERSION = 2;
+const STATE_VERSION = 3;
 
 export class Store {
   state: WorkspaceState;

@@ -7,7 +7,7 @@ Internal workspace where AI agents do routine work inside Cubro's systems and st
 - **Social Media Planner** (Marketing): plans two weeks of LinkedIn, Facebook and Instagram posts from Salesforce campaigns and customer feedback, Outlook events, new Infor LN items and SharePoint images. On approval it creates a ClickUp Marketing task and posts to Teams.
 - **Supplier Outreach** (Purchasing): checks Infor LN for overdue, unconfirmed or part-delivered purchase orders and low stock, and drafts the supplier email. On approval it sends the email from Outlook and creates a ClickUp follow-up.
 - **Approvals**: one queue; staff can edit, approve or reject with a note. Each draft shows why the agent made it and which records it used.
-- **Time & money saved**: manual minutes vs. review minutes per job, priced at each team's hourly cost, with CSV export.
+- **Time & money saved**: one ledger line per decision (`server/savings.ts`). Approved: minutes by hand minus review minutes (plus 4 if edited). Rejected: the review minutes count as a cost. Priced at the team's hourly cost on the day of the decision and dated by the New Zealand calendar. The overview, the page (by period and agent) and the CSV export all sum the same lines.
 - **Connected systems**: browse the data each connector exposes.
 
 ## Systems and connectors
@@ -31,7 +31,13 @@ Things that differ per Cubro tenant are settings, not code: Salesforce custom fi
 
 Supplier and customer email addresses in the sample data use reserved `.example` domains. The live Microsoft 365 client refuses to send to them, so a live mailbox cannot email a made-up supplier while Infor LN is still on sample data.
 
-Drafts come from built-in templates. Set `OPENAI_API_KEY` (optionally `OPENAI_MODEL`, `OPENAI_BASE_URL`) to have a model rewrite them (`server/llm/index.ts`).
+## Drafting model
+
+Set `GEMINI_API_KEY` and Google Gemini writes each post and supplier email from the facts the agent collected (`server/llm/index.ts`, Gemini Interactions API). `GEMINI_MODEL` picks the model (default `gemini-4-hydrogen`; `gemini-4-carbon` is Google's strongest). Requests are sent with `store: false`.
+
+The model writes at most 100 drafts per UTC day (`LLM_DAILY_DRAFT_LIMIT` to change), because the API has no sign-in of its own and every draft spends the key's quota; past the limit, drafts keep their template text until the next day.
+
+Without a key, drafts come from the built-in templates. If a model call fails, that draft keeps its template text and the run's Model step says how many did and why. `OPENAI_API_KEY` (optionally `OPENAI_MODEL`, `OPENAI_BASE_URL`) uses an OpenAI-compatible model instead when no Gemini key is set.
 
 ## Run
 

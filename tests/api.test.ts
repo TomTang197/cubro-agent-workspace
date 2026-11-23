@@ -55,12 +55,13 @@ describe("api", () => {
     expect(store.state.systems.m365.teamsPosts[0].channel).toBe("Marketing");
   });
 
-  it("rejecting records no savings", async () => {
+  it("rejecting counts the review time as a cost", async () => {
     const { app, store } = setup();
-    const item = store.state.approvals.find((a) => a.status === "pending")!;
+    const item = store.state.approvals.find((a) => a.status === "pending" && a.kind === "supplier_email")!;
     const savings = store.state.savings.length;
-    await request(app).post(`/api/approvals/${item.id}/reject`).send({ note: "Not now" }).expect(200);
-    expect(store.state.savings.length).toBe(savings);
+    await request(app).post(`/api/approvals/${item.id}/reject`).send({ user: "Priya Raman", note: "Not now" }).expect(200);
+    expect(store.state.savings.length).toBe(savings + 1);
+    expect(store.state.savings[0]).toMatchObject({ outcome: "rejected", approvalId: item.id, reviewer: "Priya Raman", manualMinutes: 0, agentAssistedMinutes: 3, minutesSaved: -3, dollarsSaved: -2.3 });
   });
 
   it("running supplier outreach does not duplicate drafts already waiting", async () => {
@@ -83,5 +84,69 @@ describe("api", () => {
     const res = await request(app).get("/api/dashboard").expect(200);
     expect(res.body.totals.pending).toBe(store.state.approvals.filter((a) => a.status === "pending").length);
     expect(res.body.agents).toHaveLength(2);
+  });
+});
+
+describe("settings", () => {
+  it("saves valid changes and keeps the fields that were not sent", async () => {
+    const { app, store } = setup();
+    const res = await request(app).put("/api/settings").send({ user: "Aroha Ngata", hourlyRates: { "social-media": 55.5 }, social: { postsPerRun: 4, channels: ["Instagram", "LinkedIn"] } }).expect(200);
+    expect(res.body.hourlyRates).toEqual({ "social-media": 55.5, "supplier-outreach": 46 });
+    expect(res.body.social.postsPerRun).toBe(4);
+    expect(res.body.social.channels).toEqual(["LinkedIn", "Instagram"]);
+    expect(res.body.social.horizonDays).toBe(14);
+    expect(store.state.activity[0]).toMatchObject({ actor: "Aroha Ngata", action: "updated settings" });
+  });
+
+  it.each([
+    ["a negative hourly cost", { hourlyRates: { "social-media": -50 } }, /hourly cost/],
+    ["an hourly cost that is not a number", { hourlyRates: { "supplier-outreach": "abc" } }, /hourly cost/],
+    ["zero posts per run", { social: { postsPerRun: 0 } }, /posts/],
+    ["no channels", { social: { channels: [] } }, /channel/],
+    ["an unknown channel", { social: { channels: ["TikTok"] } }, /channel/],
+    ["an empty tone of voice", { social: { tone: "  " } }, /tone/],
+    ["a negative grace period", { supplier: { overdueGraceDays: -9 } }, /days/],
+    ["no emails per run", { supplier: { maxEmailsPerRun: -1 } }, /emails/],
+    ["an empty signature", { supplier: { sender: "" } }, /signed/],
+    ["a non-boolean on/paused flag", { agents: { "social-media": { enabled: "no" } } }, /on or paused/],
+  ])("rejects %s and changes nothing", async (_name, body, message) => {
+    const { app, store } = setup();
+    const before = structuredClone(store.state.settings);
+    const res = await request(app).put("/api/settings").send(body).expect(400);
+    expect(res.body.error).toMatch(message);
+    expect(store.state.settings).toEqual(before);
+  });
+
+  it("ignores fields it does not know and rejects unknown agents", async () => {
+    const { app } = setup();
+    const res = await request(app).put("/api/settings").send({ supplier: { bogus: 1, maxEmailsPerRun: 5 }, extra: true }).expect(200);
+    expect(res.body.supplier).not.toHaveProperty("bogus");
+    expect(res.body).not.toHaveProperty("extra");
+    expect(res.body.supplier.maxEmailsPerRun).toBe(5);
+    await request(app).put("/api/settings").send({ agents: { nope: { enabled: false } } }).expect(404);
+  });
+
+  it("a paused agent cannot be run until it is switched back on", async () => {
+    const { app, store } = setup();
+    await request(app).put("/api/settings").send({ agents: { "social-media": { enabled: false } } }).expect(200);
+    const runs = store.state.runs.length;
+    const res = await request(app).post("/api/agents/social-media/run").send({ user: "Sophie Turner" }).expect(409);
+    expect(res.body.error).toMatch(/paused/);
+    expect(store.state.runs.length).toBe(runs);
+    await request(app).post("/api/agents/supplier-outreach/run").send({ user: "Mark Jensen" }).expect(200);
+    await request(app).put("/api/settings").send({ agents: { "social-media": { enabled: true } } }).expect(200);
+    await request(app).post("/api/agents/social-media/run").send({ user: "Sophie Turner" }).expect(200);
+  });
+});
+
+describe("staff switching", () => {
+  it("records runs and approvals under the staff member chosen in the workspace", async () => {
+    const { app, store } = setup();
+    const run = await request(app).post("/api/agents/supplier-outreach/run").set("x-cubro-user", "Hemi Walker").send({}).expect(200);
+    expect(run.body.triggeredBy).toBe("Hemi Walker");
+    const item = store.state.approvals.find((a) => a.status === "pending")!;
+    const res = await request(app).post(`/api/approvals/${item.id}/approve`).send({ user: "Liam Chen" }).expect(200);
+    expect(res.body.decidedBy).toBe("Liam Chen");
+    expect(store.state.activity[0].actor).toBe("Liam Chen");
   });
 });

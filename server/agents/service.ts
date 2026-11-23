@@ -1,6 +1,7 @@
 import type { Connectors } from "../connectors/index.js";
 import { addDays, isoDate } from "../data/rng.js";
 import type { LlmProvider } from "../llm/index.js";
+import { savingFor } from "../savings.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
 import { buildSocialDrafts, buildSupplierDrafts, type Draft } from "./drafts.js";
 
@@ -15,7 +16,7 @@ export const AGENTS: Record<AgentId, { name: string; description: string; team: 
   "supplier-outreach": {
     name: "Supplier Outreach",
     team: "Purchasing",
-    description: "Checks Infor LN every morning for overdue, unconfirmed or part-delivered purchase orders and low-stock items, and drafts the supplier email for each.",
+    description: "Checks Infor LN for overdue, unconfirmed or part-delivered purchase orders and low-stock items, and drafts the supplier email for each.",
     reads: ["Infor LN purchase orders, items & suppliers", "Outlook supplier inbox"],
     writes: ["Outlook email to supplier", "ClickUp Purchasing follow-up task"],
   },
@@ -31,6 +32,7 @@ export class AgentService {
     const steps: AgentRun["steps"] = [];
     const step = (system: string, action: string, detail: string) => steps.push({ at: new Date().toISOString(), system, action, detail });
     const { settings } = this.store.state;
+    if (!settings.agents[agent].enabled) throw new HttpError(409, `${AGENTS[agent].name} is paused. Turn it back on in Settings to run it.`);
     let drafts: Draft[];
     if (agent === "social-media") {
       const [campaigns, cases, accounts, items, assets] = await Promise.all([
@@ -55,14 +57,24 @@ export class AgentService {
       }));
       drafts = buildSupplierDrafts({ items, suppliers, purchaseOrders }, settings, today, pending);
     }
-    for (const d of drafts) {
-      if (d.payload.type === "social_post") {
-        d.payload.text = await this.llm.polish({ task: `Write a ${d.payload.channel} post`, draft: d.payload.text, context: d.rationale, tone: settings.social.tone });
-      } else {
-        d.payload.body = await this.llm.polish({ task: "Write a supplier email", draft: d.payload.body, context: d.rationale, tone: "Polite, direct, professional" });
+    let kept = 0, firstError = "";
+    const queue = [...drafts];
+    const worker = async () => {
+      for (let d = queue.shift(); d; d = queue.shift()) {
+        const p = d.payload;
+        try {
+          if (p.type === "social_post") p.text = await this.llm.polish({ task: `Write a ${p.channel} post`, draft: p.text, context: d.rationale, tone: settings.social.tone });
+          else p.body = await this.llm.polish({ task: "Write the body of a supplier email", draft: p.body, context: d.rationale, tone: "Polite, direct, professional" });
+        } catch (e) {
+          kept++;
+          firstError ||= e instanceof Error ? e.message : String(e);
+        }
       }
-    }
-    step("Model", "Draft", `${drafts.length} drafts written with ${this.llm.name}`);
+    };
+    await Promise.all(Array.from({ length: 4 }, worker));
+    step("Model", "Draft", kept
+      ? `${drafts.length - kept} of ${drafts.length} drafts written with ${this.llm.name}; ${kept} kept the built-in template (${firstError})`
+      : `${drafts.length} drafts written with ${this.llm.name}`);
     const run: AgentRun = {
       id: this.store.nextId("run"), agent, startedAt, finishedAt: new Date().toISOString(), triggeredBy, provider: this.llm.name,
       itemsCreated: drafts.length, steps,
@@ -129,19 +141,14 @@ export class AgentService {
     const a = this.find(id);
     if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
     a.status = "rejected"; a.decidedAt = new Date().toISOString(); a.decidedBy = by; a.reviewerNote = note;
+    this.recordSaving(a);
     this.store.log(by, "rejected", `${a.title}${note ? ` — ${note}` : ""}`);
     this.store.save();
     return a;
   }
 
   private recordSaving(a: ApprovalItem) {
-    const rate = this.store.state.settings.hourlyRates[a.agent];
-    const assisted = a.estimate.reviewMinutes + (a.edited ? 4 : 0);
-    const minutesSaved = Math.max(0, a.estimate.manualMinutes - assisted);
-    this.store.state.savings.unshift({
-      id: this.store.nextId("sav"), date: (a.decidedAt ?? new Date().toISOString()).slice(0, 10), agent: a.agent, approvalId: a.id, description: a.title,
-      manualMinutes: a.estimate.manualMinutes, agentAssistedMinutes: assisted, minutesSaved, hourlyRate: rate, dollarsSaved: Math.round((minutesSaved / 60) * rate * 100) / 100,
-    });
+    this.store.state.savings.unshift({ id: this.store.nextId("sav"), ...savingFor(a, this.store.state.settings.hourlyRates[a.agent]) });
   }
 }
 
