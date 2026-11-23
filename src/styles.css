@@ -13,7 +13,7 @@ p { margin:0 0 10px; }
 .sidebar nav a { color:var(--text); padding:7px 10px; border-radius:var(--radius); }
 .sidebar nav a:hover { background:#0000000a; } .sidebar nav a.active { background:#317CFF14; color:var(--accent); font-weight:500; }
 .sidebar-foot { margin-top:auto; display:flex; flex-direction:column; gap:6px; padding:8px; }
-.main { flex:1; min-width:0; overflow-x:clip; display:flex; flex-direction:column; }
+.main { flex:1; min-width:0; display:flex; flex-direction:column; }
 .topbar { height:44px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:flex-end; padding:0 20px; background:var(--surface); gap:10px; }
 .menu-btn { display:none; margin-right:auto; }
 .content { padding:20px 24px 40px; max-width:1320px; width:100%; }
@@ -46,6 +46,7 @@ textarea { width:100%; resize:vertical; line-height:1.5; } textarea:disabled, in
 .list-row { display:block; padding:10px 14px; border-bottom:1px solid var(--border); color:var(--text); }
 .list-row:hover { background:#00000005; } .list-row.sel { background:#317CFF0d; box-shadow:inset 3px 0 var(--accent); }
 .list-row .title { font-weight:500; margin:2px 0; }
+.detail { min-width:0; overflow-wrap:anywhere; }
 .detail h2 { font-size:17px; margin:6px 0 12px; }
 .why { background:#317CFF0a; border:1px solid #317CFF26; border-radius:var(--radius); padding:10px 12px; margin-bottom:12px; } .why p { margin:4px 0 8px; }
 .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px; } .chip { font-size:12px; border:1px solid var(--border); background:var(--surface); border-radius:4px; padding:2px 7px; }
