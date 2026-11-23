@@ -33,7 +33,7 @@ export default function SettingsPage() {
           <label className="field"><span>Emails signed by</span><input value={s.supplier.sender} onChange={(e) => setS({ ...s, supplier: { ...s.supplier, sender: e.target.value } })} /></label>
         </section>
         <section className="card"><h2>Pilot data</h2>
-          <p className="small">All four systems are simulated with sample data. To connect a real one, implement its connector in <code>server/connectors/live</code> and set <code>CONNECTOR_M365=live</code> (or SALESFORCE, CLICKUP, INFORLN). Set <code>OPENAI_API_KEY</code> to have a model write the drafts.</p>
+          <p className="small">All four systems are simulated with sample data. To connect a real one, implement its connector in <code>server/connectors/live</code> and set <code>CONNECTOR_M365=live</code> (or SALESFORCE, CLICKUP, INFORLN). Set <code>GEMINI_API_KEY</code> to have Google Gemini write the drafts (<code>GEMINI_MODEL</code> picks the model).</p>
           <button className="btn danger" onClick={reset}>Reset sample data</button>
         </section>
       </div>
