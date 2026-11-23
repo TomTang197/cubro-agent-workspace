@@ -1,4 +1,5 @@
-import { buildSocialDrafts, handledSupplierKeys, LOW_STOCK_REPEAT_DAYS, planSupplierDrafts, supplierRunSummary, type Draft } from "../agents/drafts.js";
+import { handledSupplierKeys, LOW_STOCK_REPEAT_DAYS, planSupplierDrafts, supplierRunSummary, type Draft } from "../agents/drafts.js";
+import { buildSocialDrafts, takenSocialTopics } from "../agents/social.js";
 import { toApproval } from "../agents/service.js";
 import { nzDate, nzTime, savingFor } from "../savings.js";
 import type { ActivityEntry, AgentRun, ApprovalItem, SavingsEntry, Settings } from "../store.js";
@@ -26,7 +27,7 @@ export function generateHistory(systems: SystemData, settings: Settings, today: 
     const dow = date.getUTCDay();
     if (dow === 0 || dow === 6) continue;
     const jobs: { agent: "social-media" | "supplier-outreach"; drafts: Draft[] }[] = [];
-    if (dow === 1) jobs.push({ agent: "social-media", drafts: buildSocialDrafts({ ...systems.salesforce, ...systems.inforln, ...systems.m365 }, settings, date, day) });
+    if (dow === 1) jobs.push({ agent: "social-media", drafts: buildSocialDrafts({ ...systems.salesforce, ...systems.inforln, ...systems.m365 }, settings, date, day, takenSocialTopics(approvals, date, settings.social.horizonDays)) });
     // Older history is lighter: the pilot ramped up over the eight weeks.
     const supplierCount = day > 35 ? 2 : day > 14 ? 4 : 6;
     // Stock enquiries stop a fortnight back, so the ones in today's queue are due again rather than repeats.
@@ -64,7 +65,7 @@ export function generateHistory(systems: SystemData, settings: Settings, today: 
   sRun.itemsCreated = sDrafts.length; sRun.summary = supplierRunSummary(sPlan);
   sDrafts.forEach((d) => pending.push(toApproval(d, sRun.id, runAt, id("apr"))));
   const mRun: AgentRun = { id: id("run"), agent: "social-media", startedAt: runAt, finishedAt: runAt, triggeredBy: "Schedule", provider: "Built-in templates", itemsCreated: 0, steps: [], summary: "" };
-  const mDrafts = buildSocialDrafts({ ...systems.salesforce, ...systems.inforln, ...systems.m365 }, settings, today, 0);
+  const mDrafts = buildSocialDrafts({ ...systems.salesforce, ...systems.inforln, ...systems.m365 }, settings, today, 0, takenSocialTopics(approvals, today, settings.social.horizonDays));
   mRun.itemsCreated = mDrafts.length; mRun.summary = `${mDrafts.length} posts drafted for review`;
   mDrafts.forEach((d) => pending.push(toApproval(d, mRun.id, runAt, id("apr"))));
   runs.unshift(sRun, mRun);

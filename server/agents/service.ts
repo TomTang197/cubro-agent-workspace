@@ -3,13 +3,15 @@ import { addDays, isoDate } from "../data/rng.js";
 import type { LlmProvider } from "../llm/index.js";
 import { savingFor } from "../savings.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
-import { buildSocialDrafts, FOLLOW_UP_DAYS, handledSupplierKeys, nzDate, nzDay, planSupplierDrafts, RECENT_REPLY_DAYS, supplierRunSummary, type Draft, type SupplierPlan } from "./drafts.js";
+import { FOLLOW_UP_DAYS, handledSupplierKeys, nzDate, nzDay as nzMidnight, planSupplierDrafts, RECENT_REPLY_DAYS, supplierRunSummary, type Draft, type SupplierPlan } from "./drafts.js";
+import { dateProblem, nzClock, nzDay, nzTime, shiftDay, shortDay } from "./nzTime.js";
+import { EVENT_LEAD_DAYS, buildSocialDrafts, busySocialSlots, socialBrief, takenSocialTopics } from "./social.js";
 
 export const AGENTS: Record<AgentId, { name: string; description: string; team: string; reads: string[]; writes: string[] }> = {
   "social-media": {
     name: "Social Media Planner",
     team: "Marketing",
-    description: "Plans the next two weeks of LinkedIn, Facebook and Instagram posts from live campaigns, events, new products and customer feedback, and picks an image from SharePoint.",
+    description: "Plans the next two weeks of LinkedIn, Facebook and Instagram posts from live campaigns, events, new products and customer feedback, and picks an image from SharePoint. Approved posts go to the Marketing list in ClickUp for the team to publish; nothing is posted to a social channel automatically.",
     reads: ["Salesforce campaigns & cases", "Infor LN items & stock", "Outlook calendar", "SharePoint brand assets"],
     writes: ["ClickUp Marketing tasks", "Teams #marketing post"],
   },
@@ -23,11 +25,11 @@ export const AGENTS: Record<AgentId, { name: string; description: string; team: 
 };
 
 export class AgentService {
-  constructor(private store: Store, private connectors: Connectors, private llm: LlmProvider) {}
+  constructor(private store: Store, private connectors: Connectors, private llm: LlmProvider, private now: () => Date = () => new Date()) {}
 
   get providerName() { return this.llm.name; }
 
-  async run(agent: AgentId, triggeredBy: string, today = new Date()): Promise<AgentRun> {
+  async run(agent: AgentId, triggeredBy: string, today = this.now()): Promise<AgentRun> {
     const startedAt = new Date().toISOString();
     const steps: AgentRun["steps"] = [];
     const step = (system: string, action: string, detail: string) => steps.push({ at: new Date().toISOString(), system, action, detail });
@@ -42,11 +44,15 @@ export class AgentService {
       ]);
       step("Salesforce", "SOQL query", `${campaigns.length} campaigns, ${cases.length} cases, ${accounts.length} accounts`);
       step("Infor LN", "Item BOD", `${items.length} items`);
-      const events = await this.connectors.m365.listEvents(today.toISOString(), addDays(today, settings.social.horizonDays).toISOString());
-      step("Microsoft 365", "Graph calendarView", `${events.length} events in the next ${settings.social.horizonDays} days`);
+      const lookAhead = settings.social.horizonDays + EVENT_LEAD_DAYS;
+      // To the end of the last NZ day an event can fall on and still be promoted inside the plan.
+      const events = await this.connectors.m365.listEvents(today.toISOString(), nzTime(shiftDay(nzDay(today), lookAhead + 1), 0, 0).toISOString());
+      step("Microsoft 365", "Graph calendarView", `${events.length} events in the next ${lookAhead} days`);
       step("Microsoft 365", "SharePoint drive", `${assets.length} brand assets`);
-      const existing = this.store.state.approvals.filter((a) => a.agent === agent).length;
-      drafts = buildSocialDrafts({ campaigns, cases, accounts, items, events, assets }, settings, today, existing);
+      const mine = this.store.state.approvals.filter((a) => a.agent === agent);
+      const taken = takenSocialTopics(mine, today, settings.social.horizonDays);
+      drafts = buildSocialDrafts({ campaigns, cases, accounts, items, events, assets }, settings, today, mine.length, taken, busySocialSlots(mine, today));
+      step("Approvals", "Check for repeats", "Left out anything already waiting for review, approved, or decided in the last two weeks");
     } else {
       const [items, suppliers, purchaseOrders] = await Promise.all([this.connectors.inforln.listItems(), this.connectors.inforln.listSuppliers(), this.connectors.inforln.listPurchaseOrders()]);
       step("Infor LN", "PurchaseOrder BOD", `${purchaseOrders.length} purchase orders, ${suppliers.length} suppliers, ${items.length} items`);
@@ -70,7 +76,7 @@ export class AgentService {
       for (let d = queue.shift(); d; d = queue.shift()) {
         const p = d.payload;
         try {
-          if (p.type === "social_post") p.text = await this.llm.polish({ task: `Write a ${p.channel} post`, draft: p.text, context: d.rationale, tone: settings.social.tone });
+          if (p.type === "social_post") p.text = await this.llm.polish({ task: `Write a ${p.channel} post`, draft: p.text, context: socialBrief(d), tone: settings.social.tone });
           else p.body = await this.llm.polish({ task: "Write the body of a supplier email", draft: p.body, context: d.rationale, tone: "Polite, direct, professional" });
         } catch (e) {
           kept++;
@@ -81,11 +87,11 @@ export class AgentService {
     await Promise.all(Array.from({ length: 4 }, worker));
     step("Model", "Draft", kept
       ? `${drafts.length - kept} of ${drafts.length} drafts written with ${this.llm.name}; ${kept} kept the built-in template (${firstError})`
-      : `${drafts.length} drafts written with ${this.llm.name}`);
+      : `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} written with ${this.llm.name}`);
     const run: AgentRun = {
       id: this.store.nextId("run"), agent, startedAt, finishedAt: new Date().toISOString(), triggeredBy, provider: this.llm.name,
       itemsCreated: drafts.length, steps,
-      summary: plan ? supplierRunSummary(plan) : drafts.length ? `${drafts.length} posts drafted for review` : "Nothing needed attention",
+      summary: plan ? supplierRunSummary(plan) : drafts.length ? `${drafts.length} ${drafts.length === 1 ? "post" : "posts"} drafted for review` : "Nothing new to plan: every current campaign, event and launch already has a post waiting or decided",
     };
     for (const d of drafts) this.store.state.approvals.unshift(toApproval(d, run.id, run.finishedAt, this.store.nextId("apr")));
     this.store.state.runs.unshift(run);
@@ -105,6 +111,7 @@ export class AgentService {
     if (a.status !== "pending") throw new HttpError(409, "Only pending items can be edited");
     const allowed = a.payload.type === "social_post" ? ["text", "hashtags", "scheduledFor", "channel"] : ["subject", "body"];
     for (const k of Object.keys(patch)) if (!allowed.includes(k)) throw new HttpError(400, `Field ${k} cannot be edited`);
+    if (a.payload.type === "social_post") this.checkSocialEdit(a, patch as Partial<SocialPostPayload>);
     Object.assign(a.payload, patch);
     a.edited = true;
     this.store.log(by, "edited draft", a.title);
@@ -118,24 +125,27 @@ export class AgentService {
     const outcome: NonNullable<ApprovalItem["outcome"]> = [];
     if (a.payload.type === "social_post") {
       const p = a.payload;
+      const on = nzDay(p.scheduledFor);
+      const at = `${shortDay(on)} at ${nzClock(p.scheduledFor)}`;
+      if (new Date(p.scheduledFor) < this.now()) throw new HttpError(409, `This post was planned for ${shortDay(on)}, which has passed. Pick a new date or reject it.`);
       const task = await this.connectors.clickup.createTask({
         name: `Publish ${p.channel} post — ${new Date(p.scheduledFor).toLocaleDateString("en-NZ", { timeZone: "Pacific/Auckland" })}`,
-        description: `${p.text}\n\n${p.hashtags.join(" ")}\n\nImage: ${p.assetName ?? "none"} ${p.assetUrl ?? ""}\nApproved by ${by}${note ? `: ${note}` : ""}`,
-        list: "Marketing", assignees: [by], due_date: p.scheduledFor.slice(0, 10), tags: ["social", p.channel.toLowerCase(), "agent-drafted"],
+        description: `Publish on ${p.channel}: ${at} (NZ time)\n\n${p.text}\n\n${p.hashtags.join(" ")}\n\nImage: ${p.assetName ? `${p.assetName} ${p.assetUrl ?? ""}` : "none picked, add one before publishing"}\nApproved by ${by}${note ? `: ${note}` : ""}`,
+        list: "Marketing", assignees: [by], due_date: on, tags: ["social", p.channel.toLowerCase(), "agent-drafted"],
       });
-      outcome.push({ system: "ClickUp", ref: task.url, label: `Task ${task.id} in Marketing` });
-      const post = await this.connectors.m365.postTeamsMessage("Marketing", `✅ ${p.channel} post approved by ${by} for ${p.scheduledFor.slice(0, 10)}: ${a.title}`);
-      outcome.push({ system: "Microsoft 365", ref: post.id, label: "Posted to Teams #Marketing" });
+      outcome.push({ system: "ClickUp", ref: task.url, label: `Task ${task.id} added to the Marketing list, to publish ${at}. The team publishes the post from there.` });
+      const post = await this.connectors.m365.postTeamsMessage("Marketing", `✅ ${p.channel} post approved by ${by} to publish ${at}: ${a.title}`);
+      outcome.push({ system: "Microsoft 365", ref: post.id, label: "Team told in the Marketing channel on Teams" });
     } else {
       const p = a.payload;
       const draft = await this.connectors.m365.createDraft({ from: { name: this.store.state.settings.supplier.sender, address: "purchasing@cubro.co.nz" }, to: [p.to], subject: p.subject, body: p.body });
       const sent = await this.connectors.m365.sendDraft(draft.id);
       outcome.push({ system: "Microsoft 365", ref: sent.id, label: `Email sent to ${p.to.address}` });
       const task = await this.connectors.clickup.createTask({
-        name: `Chase reply: ${p.supplierName} — ${p.purchaseOrder ?? p.subject}`, description: `Agent email sent to ${p.to.name} <${p.to.address}> on ${nzDate(isoDate(nzDay(new Date())))}. Follow up if no reply.`,
-        list: "Purchasing", assignees: [by], due_date: isoDate(addDays(nzDay(new Date()), FOLLOW_UP_DAYS)), tags: ["supplier", p.reason, "agent-drafted"],
+        name: `Chase reply: ${p.supplierName} — ${p.purchaseOrder ?? p.subject}`, description: `Agent email sent to ${p.to.name} <${p.to.address}> on ${nzDate(isoDate(nzMidnight(new Date())))}. Follow up if no reply.`,
+        list: "Purchasing", assignees: [by], due_date: isoDate(addDays(nzMidnight(new Date()), FOLLOW_UP_DAYS)), tags: ["supplier", p.reason, "agent-drafted"],
       });
-      outcome.push({ system: "ClickUp", ref: task.url, label: `Follow-up task ${task.id} in Purchasing, due ${nzDate(task.due_date ?? isoDate(addDays(nzDay(new Date()), FOLLOW_UP_DAYS)))}` });
+      outcome.push({ system: "ClickUp", ref: task.url, label: `Follow-up task ${task.id} in Purchasing, due ${nzDate(task.due_date ?? isoDate(addDays(nzMidnight(new Date()), FOLLOW_UP_DAYS)))}` });
     }
     a.status = "approved"; a.decidedAt = new Date().toISOString(); a.decidedBy = by; a.reviewerNote = note; a.outcome = outcome;
     this.recordSaving(a);
@@ -152,6 +162,27 @@ export class AgentService {
     this.store.log(by, "rejected", `${a.title}${note ? ` — ${note}` : ""}`);
     this.store.save();
     return a;
+  }
+
+  /** Staff can retime, retag and rewrite a post; this keeps what they save publishable. */
+  private checkSocialEdit(a: ApprovalItem, patch: Partial<SocialPostPayload>) {
+    if (patch.text !== undefined && (typeof patch.text !== "string" || !patch.text.trim())) throw new HttpError(400, "The post has no text. Write something or reject the draft.");
+    if (patch.scheduledFor !== undefined) {
+      const at = new Date(patch.scheduledFor);
+      if (typeof patch.scheduledFor !== "string" || Number.isNaN(at.getTime())) throw new HttpError(400, "That date is not valid.");
+      if (at < this.now()) throw new HttpError(400, "Pick a date and time in the future.");
+      const problem = a.payload.type === "social_post" ? dateProblem(a.payload, at.toISOString()) : undefined;
+      if (problem) throw new HttpError(400, problem);
+      patch.scheduledFor = at.toISOString();
+    }
+    if (patch.hashtags !== undefined) {
+      if (!Array.isArray(patch.hashtags)) throw new HttpError(400, "Hashtags must be a list.");
+      patch.hashtags = [...new Set(patch.hashtags.map((h) => String(h).replace(/[#\s]/g, "")).filter(Boolean).map((h) => `#${h}`))];
+    }
+    if (patch.channel !== undefined) {
+      if (!["LinkedIn", "Facebook", "Instagram"].includes(patch.channel)) throw new HttpError(400, "Unknown channel.");
+      a.title = a.title.replace(/^(LinkedIn|Facebook|Instagram):/, `${patch.channel}:`);
+    }
   }
 
   private recordSaving(a: ApprovalItem) {
