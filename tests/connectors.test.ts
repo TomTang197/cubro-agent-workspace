@@ -116,6 +116,24 @@ describe("connected systems API", () => {
     await request(a).get("/api/systems/inforln/items").expect(200);
   });
 
+  it("stays closed if the password is taken away after a real system was connected", async () => {
+    const store = new Store({ today });
+    const { fetchImpl } = fakeFetch([token]);
+    const make = (env: Record<string, string>) => createApp(store, { llm: templateProvider, env, fetch: fetchImpl });
+    await request(make({ CONNECTOR_SALESFORCE: "live", ...SF, WORKSPACE_PASSWORD: "kōwhai-42" })).get("/api/approvals").set("authorization", signIn).expect(200);
+    // Restarted without the password, with or without the live switch: the saved drafts are not served.
+    for (const env of [{}, { CONNECTOR_SALESFORCE: "live", ...SF }]) {
+      const res = await request(make(env)).get("/api/approvals").expect(503);
+      expect(res.body.error).toContain("WORKSPACE_PASSWORD");
+      expect(JSON.stringify(res.body)).not.toContain("payload");
+      await request(make(env)).post("/api/reset").send({}).expect(503);
+      await request(make(env)).get("/api/health").expect(200);
+    }
+    await request(make({ WORKSPACE_PASSWORD: "kōwhai-42" })).get("/api/approvals").set("authorization", signIn).expect(200);
+    // A workspace that never had a real system connected stays open without a password.
+    await request(createApp(new Store({ today }), { llm: templateProvider, env: {}, fetch: noNetwork })).get("/api/approvals").expect(200);
+  });
+
   it("reports a live system that rejects the credentials without failing the page", async () => {
     const { fetchImpl } = fakeFetch([["/services/oauth2/token", () => new Response('{"error":"invalid_client"}', { status: 401 })]]);
     const res = await request(app({ CONNECTOR_SALESFORCE: "live", ...SF }, fetchImpl)).get("/api/systems").expect(200);

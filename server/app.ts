@@ -27,15 +27,22 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
   app.use(cors());
   // With WORKSPACE_PASSWORD set, the browser asks for it before any page or record is served. Real systems stay disconnected without one.
   const password = workspacePassword(env);
-  if (password) {
-    const digest = (v: string) => crypto.createHash("sha256").update(v).digest();
-    app.use((req, res, next) => {
-      const [scheme, value] = (req.header("authorization") ?? "").split(" ");
-      const given = scheme?.toLowerCase() === "basic" ? Buffer.from(value ?? "", "base64").toString("utf8") : "";
-      if (req.path === "/api/health" || crypto.timingSafeEqual(digest(given.slice(given.indexOf(":") + 1)), digest(password))) return next();
-      res.status(401).set("WWW-Authenticate", 'Basic realm="Cubro agent workspace", charset="UTF-8"').json({ error: "Sign in with the workspace password to continue." });
-    });
-  }
+  const anyLive = SYSTEM_IDS.some((s) => isLive(s, env));
+  const digest = (v: string) => crypto.createHash("sha256").update(v).digest();
+  app.use((req, res, next) => {
+    if (req.path === "/api/health") return next();
+    const refuse = (code: number, error: string) => { if (req.path.startsWith("/api/")) res.status(code).json({ error }); else res.status(code).type("text/plain").send(error); };
+    if (!password) {
+      // Drafts and decisions saved while a real system was connected stay closed if the password is later taken away.
+      if (store.state.heldLive) return refuse(503, "This workspace holds drafts and decisions made from real systems and has no sign-in password. Set WORKSPACE_PASSWORD on the server and restart.");
+      return next();
+    }
+    if (anyLive && !store.state.heldLive) { store.state.heldLive = true; store.save(); }
+    const [scheme, value] = (req.header("authorization") ?? "").split(" ");
+    const given = scheme?.toLowerCase() === "basic" ? Buffer.from(value ?? "", "base64").toString("utf8") : "";
+    if (crypto.timingSafeEqual(digest(given.slice(given.indexOf(":") + 1)), digest(password))) return next();
+    res.status(401).set("WWW-Authenticate", 'Basic realm="Cubro agent workspace", charset="UTF-8"').json({ error: "Sign in with the workspace password to continue." });
+  });
   app.use(express.json({ limit: "1mb" }));
   const api = express.Router();
   const user = (req: Request) => String(req.body?.user ?? req.header("x-cubro-user") ?? "Staff member");

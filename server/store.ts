@@ -114,6 +114,8 @@ export interface WorkspaceState {
   activity: ActivityEntry[];
   settings: Settings;
   counters: Record<string, number>;
+  /** Set once a real system has been connected: from then on the saved drafts and decisions may hold real records. */
+  heldLive?: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -176,7 +178,7 @@ export class Store {
     systems.clickup.tasks = keep(was?.clickup?.tasks, systems.clickup.tasks, (x) => x.id);
     systems.salesforce.activities = keep(was?.salesforce?.activities, systems.salesforce.activities, (x) => x.Id);
     return {
-      ...fresh, systems, settings, counters: { ...old.counters },
+      ...fresh, systems, settings, counters: { ...old.counters }, heldLive: old.heldLive,
       approvals: [...approvals, ...fresh.approvals],
       runs: [...(old.runs ?? []).filter((r) => !seeded(r.id)), ...fresh.runs],
       savings: [...savings.map((x) => ({ ...x, approvalId: x.approvalId && carried(x.approvalId) })), ...fresh.savings].sort((a, b) => b.decidedAt.localeCompare(a.decidedAt)),
