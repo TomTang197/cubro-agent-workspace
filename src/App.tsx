@@ -36,6 +36,12 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [menu]);
   useEffect(() => {
+    const narrow = window.matchMedia("(max-width: 1180px)");
+    const onChange = () => { if (!narrow.matches) setMenu(false); };
+    narrow.addEventListener("change", onChange);
+    return () => narrow.removeEventListener("change", onChange);
+  }, []);
+  useEffect(() => {
     shell.current?.querySelectorAll(":scope > .topbar, :scope > .content, :scope > .site-footer").forEach((el) => el.toggleAttribute("inert", menu));
     if (menu) {
       opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
