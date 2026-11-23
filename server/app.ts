@@ -138,7 +138,8 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
   api.post("/systems/:system/test", wrap(async (req) => {
     if (!isSystemId(req.params.system)) throw new HttpError(404, "Unknown system");
     const status = await statusOf(req.params.system);
-    store.log(user(req), "tested connection", `${status.name}: ${status.connected ? "connected" : `not connected. ${status.error ?? ""}`}`.trim());
+    // The reason for a failure is shown on the system's card, not kept in the activity list.
+    store.log(user(req), "tested connection", `${status.name}: ${status.connected ? "connected" : "could not connect"}`);
     store.save();
     return status;
   }));

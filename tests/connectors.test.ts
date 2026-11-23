@@ -3,6 +3,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../server/app";
 import type { FetchLike } from "../server/connectors/config";
+import { createConnectors } from "../server/connectors";
 import { createLiveClickUp, createLiveInforLn, createLiveM365, createLiveSalesforce } from "../server/connectors/live";
 import { templateProvider } from "../server/llm";
 import { Store } from "../server/store";
@@ -161,7 +162,21 @@ describe("connected systems API", () => {
     await request(failing).get("/api/systems/salesforce/accounts").set("authorization", signIn).expect(502);
     await request(failing).get("/api/approvals").set("authorization", signIn).expect(200);
     expect(store.state.heldLive).toBeFalsy();
+    // Testing the failed connection is logged without the reason, which names the real system's address.
+    await request(failing).post("/api/systems/salesforce/test").set("authorization", signIn).send({ user: "Hemi Walker" }).expect(200);
+    expect(store.state.activity[0].detail).toBe("Salesforce: could not connect");
     await request(make({})).get("/api/approvals").expect(200);
+  });
+
+  it("does not report a real write as failed when the workspace file cannot be saved at that moment", async () => {
+    const store = new Store({ today });
+    const { fetchImpl, calls } = fakeFetch([["/list/902/task", () => ({ id: "86cx1", name: "Chase", url: "https://app.clickup.test/t/86cx1" })]]);
+    const { clickup } = createConnectors(store, { CONNECTOR_CLICKUP: "live", ...CU, WORKSPACE_PASSWORD: "kōwhai-42" }, fetchImpl);
+    store.save = () => { throw new Error("disk full"); };
+    const task = await clickup.createTask({ name: "Chase", description: "", list: "Purchasing", assignees: ["Priya Raman"], due_date: "2026-11-26", tags: [] });
+    expect(task.id).toBe("86cx1");
+    expect(calls.filter((c) => c.method === "POST")).toHaveLength(1);
+    expect(store.state.heldLive).toBe(true);
   });
 
   it("reports a live system that rejects the credentials without failing the page", async () => {
