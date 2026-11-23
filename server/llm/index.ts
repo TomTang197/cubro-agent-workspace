@@ -35,7 +35,9 @@ export function geminiProvider(apiKey: string, env: Env = process.env): LlmProvi
     name: `Google Gemini (${model})`,
     async polish(input) {
       const json = (await postJson("Gemini", `${baseUrl}/interactions`, { "x-goog-api-key": apiKey, "api-revision": "2026-05-20" },
-        { model, system_instruction: system(input.tone), input: prompt(input), store: false })) as { steps?: { type?: string; content?: { type?: string; text?: string }[] }[] };
+        { model, system_instruction: system(input.tone), input: prompt(input), store: false })) as { status?: string; steps?: { type?: string; content?: { type?: string; text?: string }[] }[] };
+      // "incomplete" (cut off at the token limit) and the other statuses carry partial or no text.
+      if (json.status !== "completed") throw new Error(`Gemini did not finish the draft (status ${json.status ?? "missing"})`);
       const out = json.steps?.filter((s) => s.type === "model_output").at(-1);
       const text = out?.content?.filter((c) => c.type === "text").map((c) => c.text ?? "").join("").trim();
       if (!text) throw new Error("Gemini returned no text");

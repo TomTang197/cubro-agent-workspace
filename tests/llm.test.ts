@@ -41,10 +41,12 @@ describe("Gemini provider", () => {
     expect(body.generation_config).toBeUndefined();
   });
 
-  it("throws on an API error without leaking the key, and on an empty answer", async () => {
+  it("throws on an API error without leaking the key, on a cut-off answer and on an empty one", async () => {
     mockFetch(() => reply({ error: { code: "invalid_request", message: "API key not valid" } }, 400));
     const err = await geminiProvider("secret-key", {}).polish(input).catch((e: Error) => e);
     expect((err as Error).message).toBe("Gemini error 400 invalid_request: API key not valid");
+    mockFetch(() => reply({ ...modelOutput("Cut off mid-sen"), status: "incomplete" }));
+    await expect(geminiProvider("secret-key", {}).polish(input)).rejects.toThrow("Gemini did not finish the draft (status incomplete)");
     mockFetch(() => reply({ status: "completed", steps: [] }));
     await expect(geminiProvider("secret-key", {}).polish(input)).rejects.toThrow("Gemini returned no text");
   });
