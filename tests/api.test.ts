@@ -12,9 +12,9 @@ describe("sample data", () => {
   it("is deterministic and large", () => {
     const a = generateSystemData(1, today), b = generateSystemData(1, today);
     expect(a).toEqual(b);
-    expect(a.inforln.purchaseOrders.length).toBe(150);
-    expect(a.salesforce.accounts.length).toBe(46);
-    expect(a.clickup.tasks.length).toBe(88);
+    expect(a.inforln.purchaseOrders.length).toBeGreaterThanOrEqual(250);
+    expect(a.salesforce.accounts.length).toBeGreaterThanOrEqual(120);
+    expect(a.clickup.tasks.length).toBeGreaterThanOrEqual(250);
   });
   it("seeds a pending queue and savings history", () => {
     const { store } = setup();

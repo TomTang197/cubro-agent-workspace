@@ -112,7 +112,8 @@ export const DEFAULT_SETTINGS: Settings = {
   supplier: { lowStockCoverageWeeks: 6, overdueGraceDays: 3, maxEmailsPerRun: 10, sender: "Priya Raman" },
 };
 
-const STATE_VERSION = 1;
+// Bump when the shape of the sample data changes, so saved state from an older version is regenerated.
+const STATE_VERSION = 2;
 
 export class Store {
   state: WorkspaceState;

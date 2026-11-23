@@ -3,7 +3,9 @@ import express, { type NextFunction, type Request, type Response } from "express
 import fs from "node:fs";
 import path from "node:path";
 import { AGENTS, AgentService, HttpError } from "./agents/service.js";
-import { createConnectors } from "./connectors/index.js";
+import { ConnectorError, failedStatus, isSystemId, SYSTEM_IDS, type FetchLike } from "./connectors/config.js";
+import { createConnectors, isLive } from "./connectors/index.js";
+import type { SfObjects, SystemId } from "./connectors/types.js";
 import { addDays, isoDate } from "./data/rng.js";
 import { createLlm, type LlmProvider } from "./llm/index.js";
 import type { AgentId, Store } from "./store.js";
@@ -11,8 +13,11 @@ import type { AgentId, Store } from "./store.js";
 const wrap = (fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res)).then((r) => { if (!res.headersSent) res.json(r); }).catch(next);
 const agentId = (s: string): AgentId => { if (s !== "social-media" && s !== "supplier-outreach") throw new HttpError(404, `Unknown agent ${s}`); return s; };
 
-export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: string; env?: NodeJS.ProcessEnv } = {}) {
-  const connectors = createConnectors(store, opts.env);
+export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: string; env?: NodeJS.ProcessEnv; fetch?: FetchLike } = {}) {
+  const env = opts.env ?? process.env;
+  const connectors = createConnectors(store, env, opts.fetch);
+  // A system that cannot be reached reports that on its own card; the other three still load.
+  const statusOf = (system: SystemId) => connectors[system].status().catch((e: unknown) => failedStatus(system, isLive(system, env) ? "live" : "mock", env, e));
   const agents = new AgentService(store, connectors, opts.llm ?? createLlm(opts.env));
   const app = express();
   app.use(cors());
@@ -92,20 +97,27 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
   }));
   api.post("/reset", wrap(() => { store.reset(); return { ok: true }; }));
 
-  api.get("/systems", wrap(async () => Promise.all([connectors.m365.status(), connectors.salesforce.status(), connectors.clickup.status(), connectors.inforln.status()])));
+  api.get("/systems", wrap(() => Promise.all(SYSTEM_IDS.map(statusOf))));
+  api.post("/systems/:system/test", wrap(async (req) => {
+    if (!isSystemId(req.params.system)) throw new HttpError(404, "Unknown system");
+    const status = await statusOf(req.params.system);
+    store.log(user(req), "tested connection", `${status.name}: ${status.connected ? "connected" : `not connected. ${status.error ?? ""}`}`.trim());
+    store.save();
+    return status;
+  }));
   api.get("/systems/m365/:resource", wrap(async (req) => {
     const m = connectors.m365;
     switch (req.params.resource) {
-      case "events": return m.listEvents(isoDate(addDays(new Date(), -30)), isoDate(addDays(new Date(), 90)));
+      case "events": return m.listEvents(addDays(new Date(), -90).toISOString(), addDays(new Date(), 365).toISOString());
       case "messages": return m.listMessages();
       case "assets": return m.listBrandAssets();
-      case "teams": return store.state.systems.m365.teamsPosts;
+      case "teams": return m.listTeamsPosts();
     }
     throw new HttpError(404, "Unknown resource");
   }));
   api.get("/systems/salesforce/:resource", wrap(async (req) => {
-    const map: Record<string, "Account" | "Opportunity" | "Campaign" | "Case"> = { accounts: "Account", opportunities: "Opportunity", campaigns: "Campaign", cases: "Case" };
-    if (req.params.resource === "activities") return store.state.systems.salesforce.activities;
+    const map: Record<string, keyof SfObjects> = { accounts: "Account", contacts: "Contact", opportunities: "Opportunity", campaigns: "Campaign", cases: "Case" };
+    if (req.params.resource === "activities") return connectors.salesforce.listActivities();
     const o = map[req.params.resource];
     if (!o) throw new HttpError(404, "Unknown resource");
     return connectors.salesforce.query(o);
@@ -128,7 +140,8 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
     app.get("*", (_req, res) => res.sendFile(path.join(opts.staticDir!, "index.html")));
   }
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err instanceof HttpError ? err.status : 500;
+    // 502: the workspace is fine, the system behind it did not answer.
+    const status = err instanceof HttpError ? err.status : err instanceof ConnectorError ? 502 : 500;
     res.status(status).json({ error: err instanceof Error ? err.message : String(err) });
   });
   return app;

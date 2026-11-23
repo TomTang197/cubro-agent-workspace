@@ -9,15 +9,24 @@ export const ESTIMATES = {
   supplier_email: { manualMinutes: 22, reviewMinutes: 3 },
 } as const;
 
+// Keyed by the Infor LN item group (the product categories on cubro.co.nz).
 const HASHTAGS: Record<string, string[]> = {
   Beds: ["#FallsPrevention", "#AgedCareNZ"],
-  Mattresses: ["#PressureInjuryPrevention", "#WoundCare"],
-  "Patient handling": ["#SafeMovingAndHandling", "#CarerSafety"],
-  "Bathroom & toileting": ["#DignityInCare", "#Bathing"],
+  "Bedroom furniture": ["#AgedCareNZ", "#CareHomeDesign"],
+  "Pressure care": ["#PressureInjuryPrevention", "#WoundCare"],
+  "Moving and transferring": ["#SafeMovingAndHandling", "#CarerSafety"],
+  "Falls prevention and recovery": ["#FallsPrevention", "#PatientSafety"],
   Seating: ["#Seating", "#PostureCare"],
-  Bariatric: ["#BariatricCare", "#Dignity"],
-  "Tables & trolleys": ["#WardEquipment"],
-  Spares: ["#ServiceAndSupport"],
+  Wheelchairs: ["#Mobility", "#Independence"],
+  "Powered wheelchairs": ["#Mobility", "#Independence"],
+  "Mobility scooters": ["#Mobility", "#Independence"],
+  "Trolleys, carts and laundry": ["#WardEquipment"],
+  "Infection control": ["#InfectionPrevention"],
+  "Medical and respiratory": ["#RespiratoryCare"],
+  Hygiene: ["#DignityInCare", "#Bathing"],
+  "Walking and mobility aids": ["#Mobility", "#Independence"],
+  "Theatre equipment": ["#PerioperativeCare"],
+  "Spare parts": ["#ServiceAndSupport"],
 };
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "long", timeZone: "Pacific/Auckland" });
