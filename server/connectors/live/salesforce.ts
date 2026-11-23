@@ -76,7 +76,8 @@ export function createLiveSalesforce(env: Env, fetchImpl: FetchLike = fetch): Sa
   return {
     async status() {
       try {
-        const [accounts, contacts, opportunities, campaigns, cases] = await Promise.all(["Account", "Contact", "Opportunity", "Campaign", "Case"].map(count));
+        // Task is counted too: it is where approved work is logged and read back.
+        const [accounts, contacts, opportunities, campaigns, cases] = await Promise.all(["Account", "Contact", "Opportunity", "Campaign", "Case", "Task"].map(count));
         return { ...baseStatus("salesforce", "live", env), connected: true, detail: `Connected to ${new URL(base()).host} (REST API ${version()})`, records: { accounts, contacts, opportunities, campaigns, cases } };
       } catch (e) { token.clear(); return failedStatus("salesforce", "live", env, e); }
     },

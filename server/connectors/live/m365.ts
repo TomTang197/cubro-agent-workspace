@@ -58,14 +58,26 @@ export function createLiveM365(env: Env, fetchImpl: FetchLike = fetch): M365Conn
     id: m.id, conversationId: m.conversationId ?? m.id, from: person(m.from), to: (m.toRecipients ?? []).map(person), subject: m.subject ?? "",
     bodyPreview: m.bodyPreview ?? "", body: m.body?.content ?? "", receivedDateTime: utc(m.receivedDateTime ?? m.createdDateTime), isDraft: Boolean(m.isDraft), folder,
   });
+  const drive = () => `/sites/${env.M365_SHAREPOINT_SITE_ID}/drive`;
+  /** The folder brand assets are read from: the configured one, or the top of the library. */
+  const library = () => {
+    const start = env.M365_SHAREPOINT_FOLDER?.trim().replace(/^\/+|\/+$/g, "");
+    return start ? `${drive()}/root:/${start.split("/").map(encodeURIComponent).join("/")}:/children` : `${drive()}/root/children`;
+  };
   const channels = () => jsonSetting<Record<string, string>>("m365", env, "M365_TEAMS_CHANNELS");
   const count = async (path: string) => (await graph<GraphPage<unknown>>(`${path}${path.includes("?") ? "&" : "?"}$top=1&$count=true`, { headers: { ConsistencyLevel: "eventual" } }))["@odata.count"] ?? 0;
 
   return {
     async status() {
       try {
-        const [emails, files] = await Promise.all([count(`${mailbox()}/mailFolders/inbox/messages`), graph<GraphPage<unknown>>(`/sites/${env.M365_SHAREPOINT_SITE_ID}/drive/root/children?$top=1`)]);
         const names = Object.keys(channels());
+        const week = new URLSearchParams({ startDateTime: new Date().toISOString(), endDateTime: new Date(Date.now() + 7 * 86_400_000).toISOString(), $top: "1", $select: "id" });
+        // Every read the workspace makes is tried (mail, calendar, each Teams channel, the brand library), so a wrong mailbox or channel shows here rather than when an agent runs.
+        const [emails, files] = await Promise.all([
+          count(`${mailbox()}/mailFolders/inbox/messages`), graph<GraphPage<unknown>>(`${library()}?$top=1`),
+          graph(`/users/${encodeURIComponent(env.M365_CALENDAR_USER!)}/calendarView?${week}`),
+          ...Object.values(channels()).map((id) => graph(`/teams/${env.M365_TEAMS_TEAM_ID}/channels/${encodeURIComponent(id)}/messages?$top=1`)),
+        ]);
         return { ...baseStatus("m365", "live", env), connected: true, detail: `Connected to Microsoft Graph as mailbox ${env.M365_MAILBOX}; calendar ${env.M365_CALENDAR_USER}; Teams channels ${names.join(", ") || "none"}`, records: { "inbox emails": emails, "Teams channels": names.length, "SharePoint library": files.value.length ? 1 : 0 } };
       } catch (e) { token.clear(); return failedStatus("m365", "live", env, e); }
     },
@@ -96,14 +108,12 @@ export function createLiveM365(env: Env, fetchImpl: FetchLike = fetch): M365Conn
       return { ...draft, isDraft: false, folder: "Sent Items", receivedDateTime: new Date().toISOString() };
     },
     async listBrandAssets() {
-      const drive = `/sites/${env.M365_SHAREPOINT_SITE_ID}/drive`;
-      const start = env.M365_SHAREPOINT_FOLDER?.trim().replace(/^\/+|\/+$/g, "");
-      const queue: { path: string; tags: string[] }[] = [{ path: start ? `${drive}/root:/${start.split("/").map(encodeURIComponent).join("/")}:/children` : `${drive}/root/children`, tags: [] }];
+      const queue: { path: string; tags: string[] }[] = [{ path: library(), tags: [] }];
       const assets: BrandAsset[] = [];
       while (queue.length && assets.length < MAX_ASSETS) {
         const { path, tags } = queue.shift()!;
         for (const it of await all<GraphDriveItem>(`${path}?$top=200&$select=id,name,webUrl,folder,file`)) {
-          if (it.folder) { if (tags.length < 4) queue.push({ path: `${drive}/items/${it.id}/children`, tags: [...tags, it.name] }); continue; }
+          if (it.folder) { if (tags.length < 4) queue.push({ path: `${drive()}/items/${it.id}/children`, tags: [...tags, it.name] }); continue; }
           const kind = assetKind(it.name);
           if (!kind) continue;
           // File names start with the product code, for example 98100_caro-bed_studio.jpg.

@@ -7,7 +7,7 @@ import { createHttp, requireSettings, tokenCache, trimSlash } from "./http.js";
 
 type Rec = Record<string, unknown>;
 type Collection = "items" | "suppliers" | "purchaseOrders" | "purchaseOrderLines";
-interface ODataPage { value: Rec[]; "@odata.nextLink"?: string; "@odata.count"?: number }
+interface ODataPage { value: Rec[]; "@odata.nextLink"?: string; "@odata.context"?: string; "@odata.count"?: number }
 const MAX_PAGES = 200;
 
 const str = (v: unknown) => (v == null ? "" : String(v).trim());
@@ -43,9 +43,12 @@ export function createLiveInforLn(env: Env, fetchImpl: FetchLike = fetch): Infor
     const out: Rec[] = [];
     let next: string | undefined = path;
     for (let page = 0; next && page < MAX_PAGES; page++) {
-      const res: ODataPage = await call(next);
+      const from: string = url(next);
+      const res: ODataPage = await call(from);
       out.push(...res.value);
-      next = res["@odata.nextLink"];
+      // OData allows a relative next link: it is relative to the response's context URL, or to the request when there is none.
+      const link = res["@odata.nextLink"];
+      next = link ? new URL(link, new URL(res["@odata.context"] ?? from, from)).toString() : undefined;
     }
     return out;
   };
@@ -102,7 +105,8 @@ export function createLiveInforLn(env: Env, fetchImpl: FetchLike = fetch): Infor
   return {
     async status() {
       try {
-        const [items, suppliers, purchaseOrders] = await Promise.all([count(env.INFORLN_ITEMS_PATH ?? ""), count(env.INFORLN_SUPPLIERS_PATH ?? ""), count(env.INFORLN_PURCHASE_ORDERS_PATH ?? "")]);
+        // Every collection the workspace reads is tried, so a wrong path shows here rather than when an agent runs.
+        const [items, suppliers, purchaseOrders] = await Promise.all([count(env.INFORLN_ITEMS_PATH ?? ""), count(env.INFORLN_SUPPLIERS_PATH ?? ""), count(env.INFORLN_PURCHASE_ORDERS_PATH ?? ""), ...(env.INFORLN_PURCHASE_ORDER_LINES_PATH ? [count(env.INFORLN_PURCHASE_ORDER_LINES_PATH)] : [])]);
         return { ...baseStatus("inforln", "live", env), connected: true, detail: `Connected to Infor LN company ${env.INFORLN_COMPANY} through ${new URL(env.INFORLN_ION_URL!).host}`, records: { items, suppliers, "purchase orders": purchaseOrders } };
       } catch (e) { token.clear(); return failedStatus("inforln", "live", env, e); }
     },
