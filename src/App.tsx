@@ -32,41 +32,61 @@ export default function App() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [menu]);
+  const pick = (name: string) => { setUser(name); setU(name); };
+  const nav = NAV.map((n) => <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setMenu(false)}>{n.label}</NavLink>);
   return (
     <div className="shell">
       {menu && <div className="backdrop" onClick={() => setMenu(false)} aria-hidden="true" />}
-      <aside className={`sidebar ${menu ? "open" : ""}`}>
-        <div className="brand"><span className="logo">C</span><div><strong>Cubro</strong><small>Agent Workspace</small></div><button className="ghost menu-close" onClick={() => setMenu(false)} aria-label="Close menu">✕</button></div>
-        <nav>{NAV.map((n) => <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setMenu(false)}>{n.label}</NavLink>)}</nav>
+      <header className="topbar">
+        <div className="topbar-inner">
+          <button className="ghost menu-btn" onClick={() => setMenu(!menu)} aria-label="Menu" aria-expanded={menu}>☰</button>
+          <NavLink to="/" className="brand" aria-label="Cubro Agent Workspace, Overview"><img src="/cubro-logo.png" alt="Cubro" /><span>Agent Workspace</span></NavLink>
+          <nav className="top-nav">{nav}</nav>
+          <div className="top-tools">
+            <label className="who-label" title="There is no login in the pilot. Pick your name so your approvals and agent runs are recorded under it.">
+              <span className="muted small">Working as</span>
+              <StaffSwitcher id="staff-switcher" user={user} onPick={pick} />
+            </label>
+          </div>
+          <button className="ghost who" onClick={() => setMenu(true)} title="Switch staff member">{user}</button>
+        </div>
+      </header>
+      <aside className={`sidebar ${menu ? "open" : ""}`} aria-hidden={!menu}>
+        <div className="brand"><img src="/cubro-logo.png" alt="Cubro" /><span>Agent Workspace</span><button className="ghost menu-close" onClick={() => setMenu(false)} aria-label="Close menu">✕</button></div>
+        <nav>{nav}</nav>
         <div className="sidebar-foot">
-          <label className="muted small" htmlFor="staff-switcher">You are working as</label>
-          <select id="staff-switcher" value={user} onChange={(e) => { setUser(e.target.value); setU(e.target.value); }}>
-            {Object.entries(TEAMS).map(([team, names]) => <optgroup key={team} label={team}>{names.map((s) => <option key={s}>{s}</option>)}</optgroup>)}
-          </select>
+          <label className="muted small" htmlFor="staff-switcher-menu">You are working as</label>
+          <StaffSwitcher id="staff-switcher-menu" user={user} onPick={pick} />
           <span className="muted small">There is no login in the pilot. Pick your name so your approvals and agent runs are recorded under it.</span>
-          <a className="muted small" href="https://app.devin.ai/sessions/584ae2a3f3cc425babc4499f85b04048" target="_blank" rel="noreferrer">Request a change</a>
         </div>
       </aside>
-      <div className="main">
-        <header className="topbar">
-          <button className="ghost menu-btn" onClick={() => setMenu(!menu)} aria-label="Menu" aria-expanded={menu}>☰</button>
-          <button className="ghost who" onClick={() => setMenu(true)} title="Switch staff member">{user}</button>
-          <span className="pill mock">Pilot · simulated systems</span>
-        </header>
-        <main className="content">
-          <Routes>
-            <Route path="/" element={<Overview />} />
-            <Route path="/approvals" element={<Approvals />} />
-            <Route path="/approvals/:id" element={<Approvals />} />
-            <Route path="/agents" element={<Agents />} />
-            <Route path="/savings" element={<Savings />} />
-            <Route path="/systems" element={<Systems />} />
-            <Route path="/systems/:system" element={<Systems />} />
-            <Route path="/settings" element={<SettingsPage />} />
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </main>
-      </div>
+      <main className="content">
+        <Routes>
+          <Route path="/" element={<Overview />} />
+          <Route path="/approvals" element={<Approvals />} />
+          <Route path="/approvals/:id" element={<Approvals />} />
+          <Route path="/agents" element={<Agents />} />
+          <Route path="/savings" element={<Savings />} />
+          <Route path="/systems" element={<Systems />} />
+          <Route path="/systems/:system" element={<Systems />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </main>
+      <footer className="site-footer">
+        <div className="footer-inner">
+          <span>Cubro Agent Workspace · Pilot on simulated Microsoft 365, Salesforce, ClickUp and Infor LN</span>
+          <a href="https://app.devin.ai/sessions/584ae2a3f3cc425babc4499f85b04048" target="_blank" rel="noreferrer">Request a change</a>
+        </div>
+      </footer>
     </div>
+  );
+}
+
+function StaffSwitcher({ id, user, onPick }: { id: string; user: string; onPick: (name: string) => void }) {
+  return (
+    <select id={id} value={user} onChange={(e) => onPick(e.target.value)}>
+      {Object.entries(TEAMS).map(([team, names]) => <optgroup key={team} label={team}>{names.map((s) => <option key={s}>{s}</option>)}</optgroup>)}
+    </select>
   );
 }

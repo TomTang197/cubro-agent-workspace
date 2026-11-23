@@ -30,8 +30,8 @@ export default function Overview() {
                 <YAxis fontSize={12} width={30} />
                 <Tooltip cursor={{ fill: "#0000000a" }} formatter={(v: number) => hm(v * 60)} labelFormatter={(w) => (w === t.currentWeek ? `This week so far (from ${day(w)})` : `Week of ${day(w)}`)} />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
-                <Bar isAnimationActive={false} dataKey="supplier-outreach" name="Supplier Outreach" stackId="a" fill="#317CFF" />
-                <Bar isAnimationActive={false} dataKey="social-media" name="Social Media Planner" stackId="a" fill="#93B8FF" radius={[3, 3, 0, 0]} />
+                <Bar isAnimationActive={false} dataKey="supplier-outreach" name="Supplier Outreach" stackId="a" fill="#7919FF" />
+                <Bar isAnimationActive={false} dataKey="social-media" name="Social Media Planner" stackId="a" fill="#C3A1FF" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>
