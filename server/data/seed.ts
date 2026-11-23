@@ -66,7 +66,7 @@ function makeItems(rng: Rng, today: Date, suppliers: LnSupplier[], leadByKey: Ma
     const lead = leadByKey.get(supplierKey)!;
     const safetyStock = Math.max(1, Math.ceil(demand * 0.5));
     const reorderPoint = Math.ceil(demand * Math.max(1, lead / 30)) + safetyStock;
-    const low = rng.chance(isNew ? 0.05 : 0.13);
+    const low = rng.chance(isNew ? 0.05 : 0.07);
     const standardCost = money(listPrice * rng.int(42, 58) / 100);
     return {
       item, description, itemGroup, unitPrice: listPrice, standardCost,
