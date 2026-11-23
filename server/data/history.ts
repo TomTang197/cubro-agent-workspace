@@ -50,6 +50,8 @@ export function generateHistory(systems: SystemData, settings: Settings, today: 
       }
     }
   }
+  // Newest decision first, like the live ledger.
+  savings.sort((a, b) => b.decidedAt.localeCompare(a.decidedAt));
   // Today's queue, waiting for staff.
   const pending: ApprovalItem[] = [];
   const runAt = new Date(Math.min(nzTime(isoDate(today), 7).getTime(), now.getTime())).toISOString();

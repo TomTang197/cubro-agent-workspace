@@ -36,7 +36,7 @@ export function savingFor(a: Pick<ApprovalItem, "id" | "agent" | "title" | "stat
   // Settings are free-form input; the ledger and its export only ever hold a number.
   hourlyRate = Number.isFinite(Number(hourlyRate)) ? Number(hourlyRate) : 0;
   return {
-    date: nzDate(a.decidedAt ?? new Date()), agent: a.agent, approvalId: a.id, description: a.title,
+    date: nzDate(a.decidedAt ?? new Date()), decidedAt: a.decidedAt ?? new Date().toISOString(), agent: a.agent, approvalId: a.id, description: a.title,
     outcome: approved ? "approved" : "rejected", edited: a.edited, reviewer: a.decidedBy,
     manualMinutes, agentAssistedMinutes, minutesSaved, hourlyRate, dollarsSaved: Math.round((minutesSaved / 60) * hourlyRate * 100) / 100,
   };

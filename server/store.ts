@@ -64,7 +64,9 @@ export interface AgentRun {
 
 export interface SavingsEntry {
   id: string;
+  /** New Zealand calendar day of the decision. */
   date: string;
+  decidedAt: string;
   agent: AgentId;
   approvalId?: string;
   description: string;
