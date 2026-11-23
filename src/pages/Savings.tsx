@@ -73,7 +73,7 @@ export default function Savings() {
 
       <div className="grid2">
         <section className="card"><h2>Money saved so far (NZD)</h2>
-          {cumulative.length ? <div style={{ height: 220 }}><ResponsiveContainer><AreaChart data={cumulative}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#0000001a" /><XAxis dataKey="date" tickFormatter={shortDay} fontSize={12} minTickGap={24} /><YAxis fontSize={12} width={56} tickFormatter={(v: number) => `$${v.toLocaleString("en-NZ")}`} /><Tooltip formatter={(v: number) => [money(v), "Saved up to this day"]} labelFormatter={day} /><Area isAnimationActive={false} dataKey="total" stroke="#317CFF" fill="#317CFF22" /></AreaChart></ResponsiveContainer></div> : <p className="muted">Nothing was approved or rejected in this period.</p>}
+          {cumulative.length ? <div style={{ height: 220 }}><ResponsiveContainer><AreaChart data={cumulative}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#0000001a" /><XAxis dataKey="date" tickFormatter={shortDay} fontSize={12} minTickGap={24} /><YAxis fontSize={12} width={56} tickFormatter={(v: number) => `$${v.toLocaleString("en-NZ")}`} /><Tooltip formatter={(v: number) => [money(v), "Saved up to this day"]} labelFormatter={day} /><Area isAnimationActive={false} dataKey="total" stroke="#7919FF" fill="#7919FF22" /></AreaChart></ResponsiveContainer></div> : <p className="muted">Nothing was approved or rejected in this period.</p>}
         </section>
         <section className="card"><h2>Standard times used</h2>
           <div className="scroll"><table className="table plain-table"><thead><tr><th>Job</th><th className="num">By hand</th><th className="num">Reviewing a draft</th><th className="num">Hourly cost now</th></tr></thead>
