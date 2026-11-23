@@ -77,8 +77,10 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
   }));
   api.get("/approvals/:id", wrap((req) => agents.find(req.params.id)));
   api.patch("/approvals/:id", wrap((req) => agents.edit(req.params.id, req.body?.payload ?? {}, user(req))));
-  api.post("/approvals/:id/approve", wrap((req) => agents.approve(req.params.id, user(req), req.body?.note)));
-  api.post("/approvals/:id/reject", wrap((req) => agents.reject(req.params.id, user(req), req.body?.note)));
+  // A decision can carry the reviewer's edits, so a draft only changes once its decision is final.
+  const edited = (req: Request) => { if (req.body?.payload) agents.edit(req.params.id, req.body.payload, user(req)); };
+  api.post("/approvals/:id/approve", wrap((req) => { edited(req); return agents.approve(req.params.id, user(req), req.body?.note); }));
+  api.post("/approvals/:id/reject", wrap((req) => { edited(req); return agents.reject(req.params.id, user(req), req.body?.note); }));
 
   api.get("/savings", wrap(() => {
     const today = nzDate(new Date());

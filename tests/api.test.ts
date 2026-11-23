@@ -271,6 +271,16 @@ describe("settings", () => {
 });
 
 describe("staff switching", () => {
+  it("saves a reviewer's edits with the decision, so nothing changes if the decision is undone first", async () => {
+    const { store, app } = setup();
+    const first = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
+    const res = await request(app).post(`/api/approvals/${first.id}/approve`).send({ user: "Priya Raman", payload: { subject: "A clearer subject" } }).expect(200);
+    expect(res.body).toMatchObject({ status: "approved", edited: true, payload: { subject: "A clearer subject" } });
+    const second = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
+    await request(app).post(`/api/approvals/${second.id}/reject`).send({ user: "Priya Raman", payload: { to: { address: "x@example.com" } } }).expect(400);
+    expect(second).toMatchObject({ status: "pending" });
+    expect(second.edited).toBeFalsy();
+  });
   it("says it is a demo only while every system runs on sample data", async () => {
     const { store, app } = setup();
     expect((await request(app).get("/api/workspace").expect(200)).body).toEqual({ demo: true });

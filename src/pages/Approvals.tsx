@@ -5,11 +5,14 @@ import { AGENT_NAMES, DRAFT_NOUN, STATUS_LABEL, TEAMS, agentFor, api, getUser, t
 
 const AGENT_TEAM: Record<AgentId, string> = { "social-media": "Marketing", "supplier-outreach": "Purchasing" };
 import { useApi } from "../useApi";
-import { SocialFields, SocialFootnote, SocialMeta, socialEdits, socialPatch, socialProblem } from "./SocialPost";
+import { SocialFields, SocialFootnote, SocialMeta, socialEdits, socialPatch, socialProblem, type SocialEdits } from "./SocialPost";
 
 const UNDO_MS = 8000;
 /** A decision that has been made but not yet sent on, so it can still be undone. */
-type Held = { item: ApprovalItem; kind: "approve" | "reject"; note: string; by: string };
+type Held = { item: ApprovalItem; kind: "approve" | "reject"; note: string; by: string; changes?: Changes };
+/** What the reviewer changed: `patch` goes to the server with the decision, `edits` puts their typing back if it is undone. */
+type Changes = { patch: object; edits: Edits };
+type Edits = { text: string; subject: string; social?: SocialEdits };
 
 export default function Approvals() {
   const { id } = useParams();
@@ -37,6 +40,10 @@ export default function Approvals() {
   const [decided, setDecided] = useState<string[]>([]);
   const [done, setDone] = useState<ApprovalItem>();
   const [failed, setFailed] = useState<{ item: ApprovalItem; message: string }>();
+  // The reviewer's typing, handed back to the draft once when its decision is undone or did not go through.
+  const restore = useRef<{ id: string; edits: Edits }>();
+  const giveBack = (h: Held) => { restore.current = h.changes && { id: h.item.id, edits: h.changes.edits }; };
+  const take = (draft: string) => (restore.current?.id === draft ? restore.current.edits : undefined);
   const waiting = (data ?? []).filter((a) => !(a.status === "pending" && decided.includes(a.id)));
   const filtered = waiting.filter((a) => focus || !q || a.title.toLowerCase().includes(q.toLowerCase()) || (dirty.current && a.id === editing.current));
   const list = focus ? [...filtered].sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high")) : filtered;
@@ -50,8 +57,8 @@ export default function Approvals() {
   const guard = (e: { preventDefault: () => void }) => { if (keepEdits()) e.preventDefault(); };
 
   async function commit(h: Held, keepalive = false) {
-    try { setDone(await api<ApprovalItem>(`/approvals/${h.item.id}/${h.kind}`, { method: "POST", body: { note: h.note, user: h.by }, keepalive })); }
-    catch (e) { setFailed({ item: h.item, message: e instanceof Error ? e.message : String(e) }); setDecided((d) => d.filter((x) => x !== h.item.id)); }
+    try { setDone(await api<ApprovalItem>(`/approvals/${h.item.id}/${h.kind}`, { method: "POST", body: { note: h.note, user: h.by, ...(h.changes && { payload: h.changes.patch }) }, keepalive })); }
+    catch (e) { giveBack(h); setFailed({ item: h.item, message: e instanceof Error ? e.message : String(e) }); setDecided((d) => d.filter((x) => x !== h.item.id)); }
     finally { reloadNow.current(); }
   }
   const settle = (keepalive = false) => {
@@ -71,6 +78,7 @@ export default function Approvals() {
     const h = heldRef.current;
     if (!h) return;
     window.clearTimeout(timer.current); heldRef.current = undefined; setHeld(undefined); setDecided((d) => d.filter((x) => x !== h.item.id));
+    giveBack(h);
     nav(`/approvals/${h.item.id}${qs}`);
   };
   // Leaving the page is not an undo: a decision still counting down is sent on.
@@ -82,6 +90,7 @@ export default function Approvals() {
     return () => { window.removeEventListener("pagehide", flush); flush(); };
   }, []);
 
+  useEffect(() => { if (restore.current?.id === selected?.id) restore.current = undefined; }, [selected?.id]);
   // The next draft opens at its top, not wherever the last one was scrolled to.
   useEffect(() => { if (focus) window.scrollTo(0, 0); }, [focus, selected?.id]);
 
@@ -107,7 +116,7 @@ export default function Approvals() {
         <Link to={`/approvals/${done.id}?status=${done.status}&agent=${agent || "all"}`} onClick={guard}>View</Link>
       </div>}
       {focus ? (
-        selected ? <div className="one"><Detail key={selected.id} item={selected} onDirty={(d) => { dirty.current = d; }} onDecide={(kind, note) => decide({ item: selected, kind, note, by: getUser() }, list[at + 1]?.id)} /></div>
+        selected ? <div className="one"><Detail key={selected.id} item={selected} onDirty={(d) => { dirty.current = d; }} restore={take(selected.id)} onDecide={(kind, note, changes) => decide({ item: selected, kind, note, by: getUser(), changes }, list[at + 1]?.id)} /></div>
           : data ? <section className="card one all-done"><h2>All done</h2><p>Nothing is waiting in {scope}.{held ? "" : " Ask an assistant for new drafts from your Today page."}</p><div className="row gap wrap"><Link className="btn primary" to="/">Back to Today</Link><Link className="btn" to={`/approvals${query({ status: "all", view: "list" })}`}>See what was decided</Link></div></section>
           : <p className="muted">Loading…</p>
       ) : (
@@ -123,7 +132,7 @@ export default function Approvals() {
               </Link>
             ))}
           </div>
-          {selected ? <Detail key={selected.id} item={selected} onDirty={(d) => { dirty.current = d; }} onDecide={(kind, note) => decide({ item: selected, kind, note, by: getUser() }, list[at + 1]?.id)} /> : <div className="card muted">Select a draft.</div>}
+          {selected ? <Detail key={selected.id} item={selected} onDirty={(d) => { dirty.current = d; }} restore={take(selected.id)} onDecide={(kind, note, changes) => decide({ item: selected, kind, note, by: getUser(), changes }, list[at + 1]?.id)} /> : <div className="card muted">Select a draft.</div>}
         </div>
       )}
       {held && <div className="undo" role="status">
@@ -135,17 +144,15 @@ export default function Approvals() {
   );
 }
 
-function Detail({ item, onDecide, onDirty }: { item: ApprovalItem; onDecide: (kind: "approve" | "reject", note: string) => void; onDirty: (dirty: boolean) => void }) {
+function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDecide: (kind: "approve" | "reject", note: string, changes?: Changes) => void; onDirty: (dirty: boolean) => void; restore?: Edits }) {
   const p = item.payload;
-  const [text, setText] = useState(p.type === "social_post" ? p.text : p.body);
-  const [subject, setSubject] = useState(p.type === "supplier_email" ? p.subject : "");
+  const [text, setText] = useState(restore?.text ?? (p.type === "social_post" ? p.text : p.body));
+  const [subject, setSubject] = useState(restore?.subject ?? (p.type === "supplier_email" ? p.subject : ""));
   const [note, setNote] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string>();
   // A draft is read first; its fields open only when someone chooses to change it.
-  const [changing, setChanging] = useState(false);
+  const [changing, setChanging] = useState(!!restore);
   const pending = item.status === "pending";
-  const [social, setSocial] = useState(p.type === "social_post" ? socialEdits(p) : undefined);
+  const [social, setSocial] = useState(p.type === "social_post" ? restore?.social ?? socialEdits(p) : undefined);
   const patch = p.type === "social_post" ? socialPatch(p, social!) : { body: text, subject };
   const dirty = p.type === "social_post" ? Object.keys(patch).length > 0 : text !== p.body || subject !== p.subject;
   const problem = pending && p.type === "social_post" ? socialProblem(p, social!) : undefined;
@@ -154,13 +161,10 @@ function Detail({ item, onDecide, onDirty }: { item: ApprovalItem; onDecide: (ki
   // A draft approved days after it was written would ask the supplier to reply by a date that has gone.
   const lateReplyBy = pending && p.type === "supplier_email" && p.replyBy && p.replyBy < todayNz() && text.includes(weekday(p.replyBy)) ? weekday(p.replyBy) : undefined;
 
-  async function act(kind: "approve" | "reject") {
+  function act(kind: "approve" | "reject") {
     if (kind === "approve" && lateReplyBy && !window.confirm(`This email asks for a reply by ${lateReplyBy}, which has passed. Send it anyway?`)) return;
-    setBusy(true); setErr(undefined);
-    try {
-      if (dirty && (kind === "approve" || p.type !== "social_post")) await api(`/approvals/${item.id}`, { method: "PATCH", body: { payload: patch } });
-      onDecide(kind, note);
-    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+    // The edits are saved with the decision, not before it, so undoing the decision leaves the draft as it was for everyone else.
+    onDecide(kind, note, dirty && (kind === "approve" || p.type !== "social_post") ? { patch, edits: { text, subject, social } } : undefined);
   }
   const shown = item;
   const revert = () => { if (p.type === "social_post") setSocial(socialEdits(p)); else { setText(p.body); setSubject(p.subject); } setChanging(false); };
@@ -208,21 +212,20 @@ function Detail({ item, onDecide, onDirty }: { item: ApprovalItem; onDecide: (ki
       <p className="small muted">Doing this by hand: ~{item.estimate.manualMinutes} min. Reviewing the draft: ~{item.estimate.reviewMinutes} min{item.edited ? " (+4 min for edits)" : ""}.</p>
       {pending && <>
         <label className="field"><span>Note for the team (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why you sent it back, or anything the team should know" /></label>
-        {err && <div className="error">{err}</div>}
         {problem && <div className="error">{problem}</div>}
         <div className="choices">
           <div>
-            <button className="btn primary" disabled={busy || !!problem} onClick={() => act("approve")}>{p.type === "social_post" ? "Approve" : "Approve and send"}{dirty ? " with your changes" : ""}</button>
+            <button className="btn primary" disabled={!!problem} onClick={() => act("approve")}>{p.type === "social_post" ? "Approve" : "Approve and send"}{dirty ? " with your changes" : ""}</button>
             <small>{p.type === "social_post"
               ? `Adds a task to Marketing's list in ClickUp to publish it${social!.scheduledFor ? ` on ${shortDay(nzDay(fromNzInput(social!.scheduledFor)))}` : ""}, and tells the team on Teams. Nothing is posted to ${p.channel} automatically.`
               : `Emails it to ${p.to.name} at ${p.supplierName} from the Purchasing mailbox, and adds a reminder in ClickUp to chase a reply.`}</small>
           </div>
           <div>
-            {changing || dirty ? <button className="btn" disabled={busy} onClick={revert}>Undo my changes</button> : <button className="btn" disabled={busy} onClick={() => setChanging(true)}>Change it</button>}
+            {changing || dirty ? <button className="btn" onClick={revert}>Undo my changes</button> : <button className="btn" onClick={() => setChanging(true)}>Change it</button>}
             <small>{changing || dirty ? "Puts the draft back to how the assistant wrote it." : `Fix the ${p.type === "social_post" ? "wording, hashtags or date" : "subject or wording"} first. Nothing goes out until you approve.`}</small>
           </div>
           <div>
-            <button className="btn" disabled={busy} onClick={() => act("reject")}>Send back</button>
+            <button className="btn" onClick={() => act("reject")}>Send back</button>
             <small>Nothing goes out and the draft is not used. Add a note so the team knows why.</small>
           </div>
         </div>
