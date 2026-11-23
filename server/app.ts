@@ -31,11 +31,11 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
     const approved = decided.filter((a) => a.status === "approved").length;
     const today = nzDate(new Date());
     const since30 = periodStart(today, 30);
-    const weekly = new Map<string, { week: string; "social-media": number; "supplier-outreach": number; dollars: number }>();
+    const weekly = new Map<string, { week: string; "social-media": number; "supplier-outreach": number }>();
     for (const e of s.savings) {
       const monday = weekStart(e.date);
-      const w = weekly.get(monday) ?? { week: monday, "social-media": 0, "supplier-outreach": 0, dollars: 0 };
-      w[e.agent] += e.minutesSaved / 60; w.dollars += e.dollarsSaved;
+      const w = weekly.get(monday) ?? { week: monday, "social-media": 0, "supplier-outreach": 0 };
+      w[e.agent] += e.minutesSaved / 60;
       weekly.set(monday, w);
     }
     const perAgent = AGENT_IDS.map((id) => {
@@ -57,7 +57,7 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
         all: summarise(s.savings), last30: summarise(s.savings.filter((x) => x.date >= since30)),
         pilotStart: s.savings.at(-1)?.date ?? today, since30, currentWeek: weekStart(today),
       },
-      weekly: [...weekly.values()].sort((a, b) => a.week.localeCompare(b.week)).map((w) => ({ ...w, dollars: Math.round(w.dollars * 100) / 100 })),
+      weekly: [...weekly.values()].sort((a, b) => a.week.localeCompare(b.week)),
       agents: perAgent,
       activity: s.activity.slice(0, 12),
       provider: agents.providerName,

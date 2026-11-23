@@ -28,7 +28,7 @@ export interface Dashboard {
     pending: number; highPriority: number; decided: number; approved: number; rejected: number; approvalRate: number;
     all: SavingsLine; last30: SavingsLine; pilotStart: string; since30: string; currentWeek: string;
   };
-  weekly: { week: string; "social-media": number; "supplier-outreach": number; dollars: number }[];
+  weekly: { week: string; "social-media": number; "supplier-outreach": number }[];
   agents: AgentSummary[];
   activity: ActivityEntry[];
   provider: string;

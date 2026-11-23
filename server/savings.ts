@@ -38,7 +38,7 @@ export function savingFor(a: Pick<ApprovalItem, "id" | "agent" | "title" | "stat
   return {
     date: nzDate(a.decidedAt ?? new Date()), decidedAt: a.decidedAt ?? new Date().toISOString(), agent: a.agent, approvalId: a.id, description: a.title,
     outcome: approved ? "approved" : "rejected", edited: a.edited, reviewer: a.decidedBy,
-    manualMinutes, agentAssistedMinutes, minutesSaved, hourlyRate, dollarsSaved: Math.round((minutesSaved / 60) * hourlyRate * 100) / 100,
+    manualMinutes, agentAssistedMinutes, minutesSaved, hourlyRate, dollarsSaved: Math.round((minutesSaved / 60) * hourlyRate * 10_000) / 10_000,
   };
 }
 
@@ -57,17 +57,25 @@ export interface SavingsLine {
   hourlyRates: number[];
 }
 
-/** One set of sums for every screen and the export, so the same filter always gives the same figures. */
+/**
+ * One set of sums for every screen and the export, so the same filter always gives the same figures.
+ * Money is time saved x hourly cost, rounded to the cent once per agent and rate rather than per draft,
+ * so the multiplication a reader does on the page gives the figure shown, and agents add up to the total.
+ */
 export function summarise(entries: SavingsEntry[]): SavingsLine {
   const l: SavingsLine = { approved: 0, rejected: 0, manualMinutes: 0, reviewMinutes: 0, rejectedMinutes: 0, minutesSaved: 0, dollarsSaved: 0, hourlyRates: [] };
-  let cents = 0;
+  const minutesAt = new Map<string, { rate: number; minutes: number }>();
   for (const e of entries) {
     if (e.outcome === "rejected") { l.rejected++; l.rejectedMinutes += e.agentAssistedMinutes; }
     else { l.approved++; l.manualMinutes += e.manualMinutes; l.reviewMinutes += e.agentAssistedMinutes; }
     l.minutesSaved += e.minutesSaved;
-    cents += Math.round(e.dollarsSaved * 100);
+    const group = minutesAt.get(`${e.agent}|${e.hourlyRate}`) ?? { rate: e.hourlyRate, minutes: 0 };
+    group.minutes += e.minutesSaved;
+    minutesAt.set(`${e.agent}|${e.hourlyRate}`, group);
     if (!l.hourlyRates.includes(e.hourlyRate)) l.hourlyRates.push(e.hourlyRate);
   }
+  let cents = 0;
+  for (const g of minutesAt.values()) cents += Math.round((g.minutes * g.rate * 100) / 60);
   l.dollarsSaved = cents / 100;
   l.hourlyRates.sort((a, b) => a - b);
   return l;
@@ -81,6 +89,6 @@ export const decisionLabel = (e: SavingsEntry) => (e.outcome === "rejected" ? "R
 /** Excel opens this as a table: UTF-8 with a byte-order mark, and text that looks like a formula is escaped. */
 export function savingsCsv(entries: SavingsEntry[]) {
   const text = (v: string) => `"${(/^[=+\-@]/.test(v) ? `'${v}` : v).replace(/"/g, '""')}"`;
-  const rows = entries.map((e) => [e.date, text(AGENT_NAMES[e.agent]), text(TEAMS[e.agent]), text(e.description), text(decisionLabel(e)), text(e.reviewer ?? ""), ...[e.manualMinutes, e.agentAssistedMinutes, e.minutesSaved, e.hourlyRate].map(Number), Number(e.dollarsSaved).toFixed(2)].join(","));
+  const rows = entries.map((e) => [e.date, text(AGENT_NAMES[e.agent]), text(TEAMS[e.agent]), text(e.description), text(decisionLabel(e)), text(e.reviewer ?? ""), ...[e.manualMinutes, e.agentAssistedMinutes, e.minutesSaved, e.hourlyRate].map(Number), Number(e.dollarsSaved).toFixed(4)].join(","));
   return "\uFEFF" + ["Date,Agent,Team,Work,Decision,Reviewed by,By hand (min),With agent (min),Saved (min),Hourly cost (NZD),Saved (NZD)", ...rows].join("\r\n") + "\r\n";
 }

@@ -72,9 +72,10 @@ describe("savings ledger", () => {
     expect(d.totals.all.approved).toBe(d.totals.approved);
     expect(d.totals.all.rejected).toBe(d.totals.rejected);
     expect(d.totals.approved + d.totals.rejected).toBe(d.totals.decided);
-    const weeks: { "social-media": number; "supplier-outreach": number; dollars: number }[] = d.weekly;
+    const weeks: { "social-media": number; "supplier-outreach": number }[] = d.weekly;
     expect(Math.round(weeks.reduce((n, w) => n + (w["social-media"] + w["supplier-outreach"]) * 60, 0))).toBe(d.totals.all.minutesSaved);
-    expect(weeks.reduce((n, w) => n + cents(w.dollars), 0)).toBe(cents(d.totals.all.dollarsSaved));
+    // What a reader checks with a calculator: time saved x hourly cost is the money shown.
+    for (const l of lines) expect(cents(l.dollarsSaved)).toBe(Math.round((l.minutesSaved * l.hourlyRates[0] * 100) / 60));
 
     for (const from of [d.totals.since30, d.totals.pilotStart]) {
       const entries = store.state.savings.filter((e) => e.date >= from);
@@ -95,7 +96,7 @@ describe("savings ledger", () => {
     await request(app).post(`/api/approvals/${pending[0].id}/approve`).send({ user: "Priya Raman" }).expect(200);
     let t = (await dashboard(app)).totals;
     expect(t.last30.minutesSaved - before.last30.minutesSaved).toBe(19);
-    expect(cents(t.last30.dollarsSaved) - cents(before.last30.dollarsSaved)).toBe(1457);
+    expect(Math.abs(cents(t.last30.dollarsSaved) - cents(before.last30.dollarsSaved) - 1457)).toBeLessThanOrEqual(1);
     expect(t.all.minutesSaved - before.all.minutesSaved).toBe(19);
     expect(t.pending).toBe(before.pending - 1);
 
@@ -104,7 +105,9 @@ describe("savings ledger", () => {
     await request(app).post(`/api/approvals/${pending[2].id}/reject`).send({ user: "Priya Raman" }).expect(200);
     t = (await dashboard(app)).totals;
     expect(t.all.minutesSaved - before.all.minutesSaved).toBe(19 + 15 - 3);
-    expect(cents(t.all.dollarsSaved) - cents(before.all.dollarsSaved)).toBe(1457 + 1150 - 230);
+    expect(Math.abs(cents(t.all.dollarsSaved) - cents(before.all.dollarsSaved) - (1457 + 1150 - 230))).toBeLessThanOrEqual(1);
+    const supplier = (await dashboard(app)).agents.find((a: { id: string }) => a.id === "supplier-outreach").saved;
+    expect(cents(supplier.dollarsSaved)).toBe(Math.round((supplier.minutesSaved * 46 * 100) / 60));
     expect(t.approved - before.approved).toBe(2);
     expect(t.rejected - before.rejected).toBe(1);
   });
@@ -135,7 +138,7 @@ describe("export", () => {
     const cols = rows.slice(1).map((r) => r.split(",").slice(-5).map(Number));
     const total = summarise(entries);
     expect(cols.reduce((n, c) => n + c[2], 0)).toBe(total.minutesSaved);
-    expect(cols.reduce((n, c) => n + cents(c[4]), 0)).toBe(cents(total.dollarsSaved));
+    expect(Math.abs(cols.reduce((n, c) => n + c[4], 0) - total.dollarsSaved)).toBeLessThan(0.01);
     expect(csv).toContain("Rejected");
     expect(savingsCsv([{ ...entries[0], description: '=HYPERLINK("x")' }])).toContain(`"'=HYPERLINK(""x"")"`);
   });

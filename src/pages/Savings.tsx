@@ -31,10 +31,9 @@ export default function Savings() {
   const total = useMemo(() => summarise(entries), [entries]);
   const lines = useMemo(() => AGENT_IDS.filter((a) => !agent || a === agent).map((a) => ({ agent: a, ...summarise(inPeriod.filter((e) => e.agent === a)) })), [inPeriod, agent]);
   const cumulative = useMemo(() => {
-    const byDay = new Map<string, number>();
-    for (const e of entries) byDay.set(e.date, (byDay.get(e.date) ?? 0) + Math.round(e.dollarsSaved * 100));
-    let run = 0;
-    return [...byDay.entries()].sort().map(([date, cents]) => ({ date, total: (run += cents) / 100 }));
+    const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date));
+    // Each point is the same sum as the headline would be on that day.
+    return sorted.flatMap((e, i) => (sorted[i + 1]?.date === e.date ? [] : [{ date: e.date, total: summarise(sorted.slice(0, i + 1)).dollarsSaved }]));
   }, [entries]);
 
   if (error) return <div className="error">{error}</div>;
@@ -60,8 +59,8 @@ export default function Savings() {
       </div>
       <div className="kpis">
         <div className="kpi"><span>Time saved</span><strong>{hm(total.minutesSaved)}</strong><small>{hm(total.manualMinutes)} by hand, {hm(total.reviewMinutes + total.rejectedMinutes)} with the agents</small></div>
-        <div className="kpi"><span>Money saved</span><strong>{money(total.dollarsSaved)}</strong><small>time saved × the team's hourly cost ({rateText(total)})</small></div>
-        <div className="kpi"><span>Drafts approved</span><strong>{total.approved}</strong><small>{total.approved ? `${Math.round((total.manualMinutes - total.reviewMinutes) / total.approved)} min saved each on average` : "none in this period"}, {total.rejected} rejected</small></div>
+        <div className="kpi"><span>Money saved</span><strong>{money(total.dollarsSaved)}</strong><small>{lines.length > 1 ? "each agent's time saved × its team's hourly cost" : "time saved × the team's hourly cost"} ({rateText(total)})</small></div>
+        <div className="kpi"><span>Drafts approved</span><strong>{total.approved}</strong><small>{total.approved ? `${Math.round((total.manualMinutes - total.reviewMinutes) / total.approved)} min saved per approved draft` : "none in this period"}, {total.rejected} rejected</small></div>
       </div>
 
       <section className="card flush"><h2 className="pad-head">How it adds up</h2>
@@ -69,7 +68,7 @@ export default function Savings() {
           <tbody>{lines.map((l) => <tr key={l.agent}><td>{AGENT_NAMES[l.agent]} <span className="muted small">({TEAMS[l.agent]})</span></td><td className="num">{l.approved}</td><td className="num">{hm(l.manualMinutes)}</td><td className="num">{hm(-l.reviewMinutes)}</td><td className="num">{l.rejected ? `${hm(-l.rejectedMinutes)} (${l.rejected})` : "—"}</td><td className="num">{hm(l.minutesSaved)}</td><td className="num">{rateText(l)}</td><td className="num">{money(l.dollarsSaved)}</td></tr>)}</tbody>
           {lines.length > 1 && <tfoot><tr><td>Total</td><td className="num">{total.approved}</td><td className="num">{hm(total.manualMinutes)}</td><td className="num">{hm(-total.reviewMinutes)}</td><td className="num">{total.rejected ? `${hm(-total.rejectedMinutes)} (${total.rejected})` : "—"}</td><td className="num">{hm(total.minutesSaved)}</td><td className="num" /><td className="num">{money(total.dollarsSaved)}</td></tr></tfoot>}
         </table></div>
-        <p className="muted small pad-foot">Time saved = the same jobs by hand − reviewing and editing − time spent on drafts that were rejected.</p>
+        <p className="muted small pad-foot">Time saved = the same jobs by hand − reviewing and editing − time spent on drafts that were rejected. Money saved = time saved × hourly cost.</p>
       </section>
 
       <div className="grid2">
