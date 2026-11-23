@@ -49,13 +49,13 @@ export default function Approvals() {
             </Link>
           ))}
         </div>
-        {selected ? <Detail key={selected.id} item={selected} onDirty={(d) => { dirty.current = d; }} onDone={(next, result) => { setDone(result); reload(); nav(next ? `/approvals/${next}${qs}` : `/approvals${qs}`); }} nextId={list[list.findIndex((x) => x.id === selected.id) + 1]?.id} /> : <div className="card muted">Select a draft.</div>}
+        {selected ? <Detail key={selected.id} item={selected} onFailed={reload} onDirty={(d) => { dirty.current = d; }} onDone={(next, result) => { setDone(result); reload(); nav(next ? `/approvals/${next}${qs}` : `/approvals${qs}`); }} nextId={list[list.findIndex((x) => x.id === selected.id) + 1]?.id} /> : <div className="card muted">Select a draft.</div>}
       </div>
     </>
   );
 }
 
-function Detail({ item, onDone, onDirty, nextId }: { item: ApprovalItem; onDone: (next: string | undefined, result: ApprovalItem) => void; onDirty: (dirty: boolean) => void; nextId?: string }) {
+function Detail({ item, onDone, onDirty, onFailed, nextId }: { item: ApprovalItem; onDone: (next: string | undefined, result: ApprovalItem) => void; onDirty: (dirty: boolean) => void; onFailed: () => void; nextId?: string }) {
   const p = item.payload;
   const [text, setText] = useState(p.type === "social_post" ? p.text : p.body);
   const [subject, setSubject] = useState(p.type === "supplier_email" ? p.subject : "");
@@ -84,7 +84,7 @@ function Detail({ item, onDone, onDirty, nextId }: { item: ApprovalItem; onDone:
       const r = await api<ApprovalItem>(`/approvals/${item.id}/${kind}`, { method: "POST", body: { note } });
       setResult(r);
       setTimeout(() => onDone(nextId, r), 900);
-    } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
+    } catch (e) { setErr((e as Error).message); onFailed(); /* the saved edits and any steps already done come back with the item */ } finally { setBusy(false); }
   }
   const shown = result ?? item;
   const signOff = p.type === "supplier_email" ? /((?:Kind|Best|Warm) regards|Ng\u0101 mihi|Thanks|Cheers),[ \t]*\n([^\n]+)(\nPurchasing Officer, )?/i.exec(text) : null;
