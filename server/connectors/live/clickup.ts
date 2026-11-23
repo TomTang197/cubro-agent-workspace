@@ -56,6 +56,7 @@ export function createLiveClickUp(env: Env, fetchImpl: FetchLike = fetch): Click
       } catch (e) { return failedStatus("clickup", "live", env, e); }
     },
     async listTasks(list) {
+      requireSettings("clickup", env);
       const wanted = (Object.keys(lists()) as ClickUpTask["list"][]).filter((l) => !list || l === list);
       if (list && !wanted.length) listId(list);
       const out = await Promise.all(wanted.map(async (l) => {

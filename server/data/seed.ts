@@ -318,6 +318,8 @@ export function generateSystemData(seed = 20261123, today = new Date()): SystemD
     { Name: "Aged care conference stand follow-up", Type: "Trade Show", start: -50, end: -36, skus: skus("66940", "3157"), Audience: "Aged care operators who visited the Cubro stand", KeyMessage: "Thank you for visiting our stand. Here is more on the EasiTilt care chair and Configura rise and recline chair." },
     { Name: "Home oxygen and respiratory range", Type: "Awareness", start: -40, end: -8, skus: skus("815", "814", "805"), Audience: "Community nurses and retail partners", KeyMessage: "DeVilbiss oxygen concentrators and nebulisers, with servicing from Cubro technicians." },
     { Name: "Bariatric care equipment guide", Type: "Awareness", start: -75, end: -40, skus: skus("3401", "1603", "2165", "3170"), Audience: "Hospital moving and handling coordinators", KeyMessage: "Beds, mattresses and seating rated for bariatric care, with delivery and installation support." },
+    // A single-day campaign: the date is booked in Salesforce before the invitation goes into the calendar.
+    { Name: "Care seating and positioning webinar", Type: "Webinar", start: 9, end: 9, skus: skus("66940", "66942", "3157"), Audience: "Occupational therapists and aged care clinical managers", KeyMessage: "Tilt-in-space seating that supports posture and pressure care through the day." },
   ];
   const campaigns: SfCampaign[] = campaignSeeds.map((c, i) => ({
     Id: sfId("701", i), Name: c.Name, Type: c.Type, Status: c.end < 0 ? "Completed" : c.start <= 0 ? "In Progress" : "Planned",

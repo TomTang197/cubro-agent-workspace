@@ -77,6 +77,15 @@ describe("connected systems API", () => {
     await request(a).get("/api/systems/inforln/items").expect(200);
   });
 
+  it("says a live system is not set up on every record tab, never an empty list", async () => {
+    const a = app({ CONNECTOR_M365: "live", CONNECTOR_SALESFORCE: "live", CONNECTOR_CLICKUP: "live", CONNECTOR_INFORLN: "live" });
+    for (const path of ["m365/events", "m365/messages", "m365/assets", "m365/teams", "salesforce/accounts", "salesforce/activities", "clickup/tasks", "inforln/items", "inforln/suppliers", "inforln/purchase-orders"]) {
+      const res = await request(a).get(`/api/systems/${path}`);
+      expect(res.status, path).toBe(502);
+      expect(res.body.error, path).toContain("Not set up yet");
+    }
+  });
+
   it("reports a live system that rejects the credentials without failing the page", async () => {
     const { fetchImpl } = fakeFetch([["/services/oauth2/token", () => new Response('{"error":"invalid_client"}', { status: 401 })]]);
     const res = await request(app({ CONNECTOR_SALESFORCE: "live", ...SF }, fetchImpl)).get("/api/systems").expect(200);

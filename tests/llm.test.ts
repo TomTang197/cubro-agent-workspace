@@ -70,16 +70,17 @@ describe("daily limit on model-written drafts", () => {
   it("applies across runs of the API, and resetting the workspace does not clear it", async () => {
     const fetch = mockFetch(() => reply(modelOutput("Gemini wrote this.")));
     const store = new Store({ today });
-    const app = createApp(store, { env: { GEMINI_API_KEY: "secret-key", LLM_DAILY_DRAFT_LIMIT: "10" } });
+    const app = createApp(store, { env: { GEMINI_API_KEY: "secret-key", LLM_DAILY_DRAFT_LIMIT: "12" }, now: () => today });
     const model = (res: { body: { steps: { system: string; detail: string }[] } }) => res.body.steps.find((s) => s.system === "Model")!.detail;
     const first = await request(app).post("/api/agents/social-media/run").send({}).expect(200);
     expect(model(first)).toBe("8 drafts written with Google Gemini (gemini-4-hydrogen)");
     store.reset(today);
     const second = await request(app).post("/api/agents/social-media/run").send({}).expect(200);
-    expect(model(second)).toBe("2 of 8 drafts written with Google Gemini (gemini-4-hydrogen); 6 kept the built-in template (daily limit of 10 model-written drafts reached)");
+    expect(model(second)).toBe("4 of 8 drafts written with Google Gemini (gemini-4-hydrogen); 4 kept the built-in template (daily limit of 12 model-written drafts reached)");
+    store.reset(today);
     const third = await request(app).post("/api/agents/social-media/run").send({}).expect(200);
-    expect(model(third)).toBe("0 of 8 drafts written with Google Gemini (gemini-4-hydrogen); 8 kept the built-in template (daily limit of 10 model-written drafts reached)");
-    expect(fetch).toHaveBeenCalledTimes(10);
+    expect(model(third)).toBe("0 of 8 drafts written with Google Gemini (gemini-4-hydrogen); 8 kept the built-in template (daily limit of 12 model-written drafts reached)");
+    expect(fetch).toHaveBeenCalledTimes(12);
   });
 
   it("defaults to 100 a day when the setting is missing or not a whole number", async () => {
@@ -96,7 +97,7 @@ describe("daily limit on model-written drafts", () => {
 describe("agent runs with Gemini", () => {
   const run = (agent: string) => {
     const store = new Store({ today });
-    const app = createApp(store, { env: { GEMINI_API_KEY: "secret-key" } });
+    const app = createApp(store, { env: { GEMINI_API_KEY: "secret-key" }, now: () => today });
     return request(app).post(`/api/agents/${agent}/run`).send({}).expect(200).then((res) => ({ res, store }));
   };
   const created = (store: Store, n: number) => store.state.approvals.slice(0, n);

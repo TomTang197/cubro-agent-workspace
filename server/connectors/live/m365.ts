@@ -124,6 +124,7 @@ export function createLiveM365(env: Env, fetchImpl: FetchLike = fetch): M365Conn
       return assets;
     },
     async listTeamsPosts() {
+      requireSettings("m365", env);
       const lists = await Promise.all(Object.entries(channels()).map(async ([channel, id]) =>
         (await all<GraphChannelMessage>(`/teams/${env.M365_TEAMS_TEAM_ID}/channels/${encodeURIComponent(id)}/messages?$top=50`, undefined, 100))
           .filter((m) => !m.messageType || m.messageType === "message")

@@ -16,12 +16,12 @@ import type { AgentId, Store } from "./store.js";
 const wrap = (fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res)).then((r) => { if (!res.headersSent) res.json(r); }).catch(next);
 const agentId = (s: string): AgentId => { if (s !== "social-media" && s !== "supplier-outreach") throw new HttpError(404, `Unknown agent ${s}`); return s; };
 
-export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: string; env?: NodeJS.ProcessEnv; fetch?: FetchLike } = {}) {
+export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: string; env?: NodeJS.ProcessEnv; fetch?: FetchLike; now?: () => Date } = {}) {
   const env = opts.env ?? process.env;
   const connectors = createConnectors(store, env, opts.fetch);
   // A system that cannot be reached reports that on its own card; the other three still load.
   const statusOf = (system: SystemId) => connectors[system].status().catch((e: unknown) => failedStatus(system, isLive(system, env) ? "live" : "mock", env, e));
-  const agents = new AgentService(store, connectors, opts.llm ?? createLlm(opts.env));
+  const agents = new AgentService(store, connectors, opts.llm ?? createLlm(opts.env), opts.now);
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: "1mb" }));

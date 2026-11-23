@@ -40,6 +40,8 @@ export function createLiveInforLn(env: Env, fetchImpl: FetchLike = fetch): Infor
     return http.json<ODataPage>(url(path), { headers: { authorization: `Bearer ${await token.get()}`, "X-Infor-LnCompany": env.INFORLN_COMPANY! } });
   };
   const all = async (path: string) => {
+    // Checked before the first page: without a collection path there is nothing to request, and that must not read as an empty list.
+    requireSettings("inforln", env);
     const out: Rec[] = [];
     let next: string | undefined = path;
     for (let page = 0; next && page < MAX_PAGES; page++) {

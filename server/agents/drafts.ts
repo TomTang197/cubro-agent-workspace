@@ -1,6 +1,6 @@
 import type { SystemData } from "../data/seed.js";
 import { addDays, isoDate } from "../data/rng.js";
-import type { ApprovalItem, Settings, SocialPostPayload, SupplierEmailPayload } from "../store.js";
+import type { ApprovalItem, Settings, SupplierEmailPayload } from "../store.js";
 
 export type Draft = Omit<ApprovalItem, "id" | "runId" | "status" | "createdAt" | "edited" | "originalPayload">;
 
@@ -8,111 +8,6 @@ export const ESTIMATES = {
   social_post: { manualMinutes: 35, reviewMinutes: 5 },
   supplier_email: { manualMinutes: 22, reviewMinutes: 3 },
 } as const;
-
-// Keyed by the Infor LN item group (the product categories on cubro.co.nz).
-const HASHTAGS: Record<string, string[]> = {
-  Beds: ["#FallsPrevention", "#AgedCareNZ"],
-  "Bedroom furniture": ["#AgedCareNZ", "#CareHomeDesign"],
-  "Pressure care": ["#PressureInjuryPrevention", "#WoundCare"],
-  "Moving and transferring": ["#SafeMovingAndHandling", "#CarerSafety"],
-  "Falls prevention and recovery": ["#FallsPrevention", "#PatientSafety"],
-  Seating: ["#Seating", "#PostureCare"],
-  Wheelchairs: ["#Mobility", "#Independence"],
-  "Powered wheelchairs": ["#Mobility", "#Independence"],
-  "Mobility scooters": ["#Mobility", "#Independence"],
-  "Trolleys, carts and laundry": ["#WardEquipment"],
-  "Infection control": ["#InfectionPrevention"],
-  "Medical and respiratory": ["#RespiratoryCare"],
-  Hygiene: ["#DignityInCare", "#Bathing"],
-  "Walking and mobility aids": ["#Mobility", "#Independence"],
-  "Theatre equipment": ["#PerioperativeCare"],
-  "Spare parts": ["#ServiceAndSupport"],
-};
-
-const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("en-NZ", { weekday: "long", day: "numeric", month: "long", timeZone: "Pacific/Auckland" });
-
-type SocialData = Pick<SystemData["salesforce"], "campaigns" | "cases" | "accounts"> & Pick<SystemData["inforln"], "items"> & Pick<SystemData["m365"], "events" | "assets">;
-
-export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date, offset = 0): Draft[] {
-  const { channels, postsPerRun, horizonDays } = settings.social;
-  const end = addDays(start, horizonDays);
-  const inWindow = (s: string, e: string) => s <= isoDate(end) && e >= isoDate(start);
-  const campaigns = d.campaigns.filter((c) => inWindow(c.StartDate, c.EndDate));
-  const events = d.events.filter((e) => e.category === "Trade show" || e.category === "Webinar").filter((e) => e.start >= start.toISOString() && e.start <= end.toISOString());
-  const praise = d.cases.filter((c) => c.Type === "Feedback" && !/demo|replacing|sticking/i.test(c.Description));
-  const newItems = d.items.filter((i) => i.isNew);
-
-  type Idea = { title: string; text: (ch: string) => string; tags: string[]; skus: string[]; campaign?: string; why: string; sources: Draft["sources"]; priority: Draft["priority"] };
-  const ideas: Idea[] = [];
-  for (const c of campaigns) {
-    const prods = c.ProductSkus.map((s) => d.items.find((i) => i.item === s)).filter(Boolean) as SocialData["items"];
-    const p = prods[(offset + ideas.length) % Math.max(1, prods.length)];
-    ideas.push({
-      title: `${c.Name}${p ? ` — ${p.description}` : ""}`,
-      text: (ch) => ch === "LinkedIn"
-        ? `${c.KeyMessage}\n\n${p ? `The ${p.description} is part of our ${p.itemGroup.toLowerCase()} range, designed and supported here in Aotearoa. ` : ""}Our team works alongside ${c.Audience.toLowerCase()} to match equipment to the people using it.\n\nTalk to your Cubro account manager or visit cubro.co.nz to book a demo.`
-        : ch === "Instagram"
-          ? `${c.KeyMessage} ${p ? `Meet the ${p.description}.` : ""} Designed with NZ carers 💙`
-          : `${c.KeyMessage}${p ? ` See the ${p.description} in action and ask us about a trial at your facility.` : ""} Message us to find out more.`,
-      tags: [...(p ? HASHTAGS[p.itemGroup] ?? [] : []), "#Cubro", "#NZHealth"],
-      skus: p ? [p.item] : [], campaign: c.Name, priority: c.Status === "In Progress" ? "high" : "normal",
-      why: `Salesforce campaign "${c.Name}" runs ${c.StartDate} to ${c.EndDate}${p ? `; featured product ${p.item} has ${p.onHand} units on hand in Infor LN` : ""}.`,
-      sources: [{ system: "Salesforce", label: `Campaign: ${c.Name}`, ref: c.Id }, ...(p ? [{ system: "Infor LN", label: `Item ${p.item}`, ref: p.item }] : [])],
-    });
-  }
-  for (const e of events) {
-    ideas.push({
-      title: `Event: ${e.subject}`,
-      text: (ch) => ch === "LinkedIn"
-        ? `We'll be at ${e.subject} (${e.location}) on ${fmtDate(e.start)}. Come and see our latest care beds, hoists and bathroom solutions, and talk to our team about what your facility needs.\n\nWe'd love to see you there.`
-        : `Catch the Cubro team at ${e.subject}, ${e.location}, on ${fmtDate(e.start)}. Come say kia ora!`,
-      tags: ["#Cubro", "#HealthcareNZ", "#TradeShow"], skus: [], priority: "high",
-      why: `Outlook calendar shows "${e.subject}" on ${e.start.slice(0, 10)} organised by ${e.organizer}.`,
-      sources: [{ system: "Microsoft 365", label: `Calendar: ${e.subject}`, ref: e.id }],
-    });
-  }
-  for (const p of newItems) {
-    ideas.push({
-      title: `New product: ${p.description}`,
-      text: (ch) => ch === "LinkedIn"
-        ? `New to the Cubro range: the ${p.description}.\n\nBuilt for the realities of NZ ${p.itemGroup === "Beds" ? "wards and rest homes" : "care settings"}, it joins our ${p.itemGroup.toLowerCase()} line-up${p.launchDate ? ` from ${fmtDate(p.launchDate + "T00:00:00Z")}` : ""}. Ask your account manager about a trial unit.`
-        : `Introducing the ${p.description} — new to our ${p.itemGroup.toLowerCase()} range. Ask us about a trial.`,
-      tags: [...(HASHTAGS[p.itemGroup] ?? []), "#NewProduct", "#Cubro"], skus: [p.item], priority: "normal",
-      why: `Infor LN flags ${p.item} as a new item${p.launchDate ? ` launching ${p.launchDate}` : ""}.`,
-      sources: [{ system: "Infor LN", label: `New item ${p.item}`, ref: p.item }],
-    });
-  }
-  for (const c of praise.slice(0, 4)) {
-    const acc = d.accounts.find((a) => a.Id === c.AccountId);
-    const p = d.items.find((i) => i.item === c.ProductSku);
-    ideas.push({
-      title: `Customer story: ${p?.description ?? "feedback"}`,
-      text: () => `"${c.Description}" — feedback from a ${acc?.Type.toLowerCase() ?? "customer"} team in ${acc?.BillingCity ?? "NZ"}.\n\nStories like this are why we design equipment with the people who use it every day.${p ? ` (Pictured: ${p.description})` : ""}`,
-      tags: ["#CustomerStory", "#Cubro", ...(p ? HASHTAGS[p.itemGroup] ?? [] : [])], skus: p ? [p.item] : [], priority: "low",
-      why: `Salesforce case ${c.Id} logged positive feedback on ${c.CreatedDate}. Get the customer's permission before naming them.`,
-      sources: [{ system: "Salesforce", label: `Case ${c.Id}`, ref: c.Id }],
-    });
-  }
-
-  const drafts: Draft[] = [];
-  for (let i = 0; i < postsPerRun && ideas.length; i++) {
-    const idea = ideas[(i + offset) % ideas.length];
-    const channel = channels[(i + offset) % channels.length];
-    const when = addDays(start, Math.min(horizonDays - 1, Math.floor((i * horizonDays) / postsPerRun) + 1));
-    when.setUTCHours(channel === "LinkedIn" ? 20 : 6, 30); // 9:30am / 7:30pm NZDT
-    const asset = d.assets.find((a) => idea.skus.includes(a.productSku ?? "")) ?? d.assets[(i + offset) % d.assets.length];
-    const payload: SocialPostPayload = {
-      type: "social_post", channel, scheduledFor: when.toISOString(), text: idea.text(channel), hashtags: idea.tags.slice(0, 4),
-      assetName: asset?.name, assetUrl: asset?.webUrl, campaign: idea.campaign, productSkus: idea.skus,
-    };
-    drafts.push({
-      agent: "social-media", kind: "social_post", title: `${channel}: ${idea.title}`, priority: idea.priority,
-      rationale: idea.why, sources: [...idea.sources, ...(asset ? [{ system: "Microsoft 365", label: `SharePoint asset ${asset.name}`, ref: asset.id }] : [])],
-      payload, estimate: { ...ESTIMATES.social_post },
-    });
-  }
-  return drafts;
-}
 
 type SupplierData = SystemData["inforln"];
 type SupplierReply = { subject: string; receivedDateTime: string };
