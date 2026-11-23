@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../server/app";
 import { generateSystemData } from "../server/data/seed";
 import { templateProvider } from "../server/llm";
-import { Store } from "../server/store";
+import { FOLLOW_UP_DAYS, LOW_STOCK_REPEAT_DAYS, planSupplierDrafts, supplierKey, supplierRunSummary } from "../server/agents/drafts";
+import { Store, type SupplierEmailPayload } from "../server/store";
 
 const today = new Date("2026-11-23T00:00:00Z");
 const setup = () => { const store = new Store({ today }); return { store, app: createApp(store, { llm: templateProvider, env: {} }) }; };
@@ -18,6 +19,8 @@ describe("sample data", () => {
   });
   it("seeds a pending queue and savings history", () => {
     const { store } = setup();
+    const reasons = store.state.approvals.filter((x) => x.status === "pending" && x.payload.type === "supplier_email").map((x) => (x.payload as SupplierEmailPayload).reason);
+    expect(reasons).toEqual(expect.arrayContaining(["overdue", "partial", "low_stock"]));
     expect(store.state.approvals.filter((x) => x.status === "pending").length).toBeGreaterThan(5);
     expect(store.state.savings.length).toBeGreaterThan(50);
   });
@@ -72,6 +75,47 @@ describe("api", () => {
     expect(new Set(titles).size).toBe(titles.length);
   });
 
+  it("does not chase a supplier again right after an email was sent or a draft was rejected", async () => {
+    const { app, store } = setup();
+    const pending = store.state.approvals.filter((a) => a.status === "pending" && a.kind === "supplier_email");
+    const sent = pending.find((a) => (a.payload as SupplierEmailPayload).purchaseOrder)!;
+    const rejected = pending.find((a) => (a.payload as SupplierEmailPayload).reason === "low_stock")!;
+    await request(app).post(`/api/approvals/${sent.id}/approve`).send({ user: "Priya Raman" }).expect(200);
+    await request(app).post(`/api/approvals/${rejected.id}/reject`).send({ user: "Priya Raman", note: "Already spoke to them by phone" }).expect(200);
+    const run = await request(app).post("/api/agents/supplier-outreach/run").send({ user: "Priya Raman" }).expect(200);
+    const after = await request(app).get("/api/approvals?status=pending&agent=supplier-outreach");
+    const titles = after.body.map((a: { title: string }) => a.title);
+    expect(titles).not.toContain(sent.title);
+    expect(titles).not.toContain(rejected.title);
+    expect(run.body.steps.map((s: { detail: string }) => s.detail).join(" ")).toMatch(/already waiting for review, or sent or rejected in the last few days/);
+  });
+
+  it("seeded history never emails the same supplier about the same thing twice within the follow-up window", () => {
+    const { store } = setup();
+    const emails = store.state.approvals.filter((a) => a.payload.type === "supplier_email");
+    const last = new Map<string, number>();
+    for (const a of [...emails].reverse()) {
+      const key = supplierKey(a.payload as SupplierEmailPayload), at = new Date(a.createdAt).getTime();
+      const days = (a.payload as SupplierEmailPayload).reason === "low_stock" ? LOW_STOCK_REPEAT_DAYS : FOLLOW_UP_DAYS;
+      if (last.has(key)) expect(at - last.get(key)!).toBeGreaterThanOrEqual(days * 86_400_000);
+      last.set(key, at);
+    }
+  });
+
+  it("says how many issues were held back by the per-run limit", () => {
+    const { store } = setup();
+    const { inforln } = store.state.systems, { settings } = store.state;
+    const everything = planSupplierDrafts(inforln, { ...settings, supplier: { ...settings.supplier, maxEmailsPerRun: 999 } }, today);
+    const capped = planSupplierDrafts(inforln, { ...settings, supplier: { ...settings.supplier, maxEmailsPerRun: 3 } }, today);
+    expect(everything.heldBack).toBe(0);
+    expect(capped.drafts).toHaveLength(3);
+    expect(capped.heldBack).toBe(everything.drafts.length - 3);
+    expect(supplierRunSummary(capped)).toBe(`3 supplier emails drafted for review, ${capped.heldBack} more held for the next run`);
+    expect(supplierRunSummary({ drafts: [], heldBack: 0 })).toBe("Nothing new needs chasing");
+    const morning = store.state.runs.find((r) => r.agent === "supplier-outreach")!;
+    expect(morning.summary).toMatch(/^10 supplier emails drafted for review, \d+ more held for the next run$/);
+  });
+
   it("running social planner drafts new posts", async () => {
     const { app } = setup();
     const res = await request(app).post("/api/agents/social-media/run").send({}).expect(200);
@@ -83,5 +127,75 @@ describe("api", () => {
     const res = await request(app).get("/api/dashboard").expect(200);
     expect(res.body.totals.pending).toBe(store.state.approvals.filter((a) => a.status === "pending").length);
     expect(res.body.agents).toHaveLength(2);
+  });
+});
+
+describe("supplier outreach drafts", () => {
+  const { store } = setup();
+  const { inforln } = store.state.systems, { settings } = store.state;
+  const all = { ...settings, supplier: { ...settings.supplier, maxEmailsPerRun: 999 } };
+  const emails = (drafts: ReturnType<typeof planSupplierDrafts>["drafts"]) => drafts.map((d) => d.payload as SupplierEmailPayload);
+
+  it("writes dates the way a New Zealander reads them and never ISO dates", () => {
+    const { drafts } = planSupplierDrafts(inforln, all, today);
+    for (const d of drafts) expect(`${d.rationale} ${(d.payload as SupplierEmailPayload).body}`).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+    const overdue = emails(drafts).find((p) => p.reason === "overdue")!;
+    expect(overdue.body).toMatch(/was due to arrive on \d{1,2} [A-Z][a-z]+ 2026/);
+    expect(overdue.body).toContain("A reply by Wednesday 25 November");
+  });
+
+  it("asks for a reply on a working day", () => {
+    const { drafts } = planSupplierDrafts(inforln, all, new Date("2026-11-26T00:00:00Z"));
+    expect(emails(drafts)[0].body).toContain("A reply by Monday 30 November");
+  });
+
+  it("keeps Cubro's stock levels out of the email and in the reviewer's notes", () => {
+    const { drafts } = planSupplierDrafts(inforln, all, today);
+    const low = drafts.filter((d) => (d.payload as SupplierEmailPayload).reason === "low_stock");
+    expect(low.length).toBeGreaterThan(0);
+    for (const d of low) {
+      expect((d.payload as SupplierEmailPayload).body).not.toMatch(/on hand|reorder point/i);
+      expect(d.rationale).toMatch(/on hand, \d+ on order, reorder point/);
+    }
+  });
+
+  it("does not claim customer orders are waiting", () => {
+    for (const p of emails(planSupplierDrafts(inforln, all, today).drafts)) expect(p.body).not.toMatch(/customer orders waiting/);
+  });
+
+  it("puts late and part-delivered orders ahead of unconfirmed ones when the run is capped", () => {
+    const reasons = emails(planSupplierDrafts(inforln, all, today).drafts.filter((d) => d.priority === "normal")).map((p) => p.reason);
+    const firstUnconfirmed = reasons.indexOf("unconfirmed");
+    expect(reasons.slice(firstUnconfirmed)).not.toContain("overdue");
+    expect(reasons.slice(firstUnconfirmed)).not.toContain("partial");
+  });
+
+  it("leaves an order alone when the supplier emailed about it this week, and quotes older emails", () => {
+    const base = planSupplierDrafts(inforln, all, today);
+    const [recent, older] = emails(base.drafts).filter((p) => p.purchaseOrder).map((p) => p.purchaseOrder!);
+    const replies = new Map([
+      [recent, { subject: `RE: ${recent} shipment update`, receivedDateTime: "2026-11-20T02:00:00.000Z" }],
+      [older, { subject: `${older} — order confirmation`, receivedDateTime: "2026-11-02T02:00:00.000Z" }],
+    ]);
+    const plan = planSupplierDrafts(inforln, all, today, { replies });
+    expect(plan.repliedRecently).toBe(1);
+    expect(emails(plan.drafts).map((p) => p.purchaseOrder)).not.toContain(recent);
+    const quoted = plan.drafts.find((d) => (d.payload as SupplierEmailPayload).purchaseOrder === older)!;
+    expect(quoted.rationale).toContain(`"${older} — order confirmation" on 2 November 2026`);
+    expect(quoted.sources.some((s) => s.system === "Microsoft 365")).toBe(true);
+  });
+
+  it("the run reads the supplier inbox and skips orders the supplier just wrote about", async () => {
+    const { app, store } = setup();
+    const target = (await request(app).post("/api/agents/supplier-outreach/run").send({}).expect(200)).body;
+    expect(target.itemsCreated).toBeGreaterThan(0);
+    const fresh = store.state.approvals.find((a) => a.runId === target.id && a.payload.type === "supplier_email" && a.payload.purchaseOrder)!;
+    const po = (fresh.payload as SupplierEmailPayload).purchaseOrder!;
+    await request(app).post(`/api/approvals/${fresh.id}/reject`).send({}).expect(200);
+    fresh.decidedAt = new Date(Date.now() - 30 * 86_400_000).toISOString(); // outside the follow-up window, so only the inbox can stop a new draft
+    store.state.systems.m365.messages.unshift({ ...store.state.systems.m365.messages[0], id: "reply-1", subject: `RE: ${po} shipment update`, receivedDateTime: new Date().toISOString() });
+    const run = (await request(app).post("/api/agents/supplier-outreach/run").send({}).expect(200)).body;
+    expect(run.steps.find((s: { system: string }) => s.system === "Microsoft 365").detail).toMatch(/1 order left alone because the supplier wrote in the last 7 days/);
+    expect(store.state.approvals.some((a) => a.runId === run.id && (a.payload as SupplierEmailPayload).purchaseOrder === po)).toBe(false);
   });
 });

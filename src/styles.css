@@ -2,6 +2,7 @@
 * { box-sizing:border-box; }
 body { margin:0; background:var(--bg); color:var(--text); font:14px/1.45 var(--font); }
 a { color:var(--accent); text-decoration:none; }
+button.link { background:none; border:0; padding:0; font:inherit; color:var(--accent); cursor:pointer; }
 h1 { font-size:20px; margin:0 0 4px; font-weight:600; } h2 { font-size:15px; margin:0 0 12px; font-weight:600; } h3 { font-size:14px; margin:12px 0 8px; font-weight:600; }
 p { margin:0 0 10px; }
 .muted { color:var(--muted); } .small { font-size:12px; }
