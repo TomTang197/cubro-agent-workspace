@@ -16,7 +16,7 @@ export default function Agents() {
   return (
     <>
       <div className="page-head"><div><h1>Agents</h1><p className="muted">Each agent reads from the company's systems, drafts work, and waits for a person to approve it.</p></div></div>
-      {last && <div className="banner">Run finished: {last.summary}. <Link to={`/approvals?agent=${last.agent}`}>Review them</Link></div>}
+      {last && <div className="banner">Run finished: {last.summary}. {last.itemsCreated > 0 && <Link to={`/approvals?agent=${last.agent}`}>Review them</Link>}</div>}
       {data?.map((a) => (
         <section className="card" key={a.id}>
           <div className="row between wrap"><div><h2>{a.name}</h2><p className="muted small">{a.team} · owner {a.owner} · scheduled {a.schedule}</p></div>

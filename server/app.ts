@@ -11,9 +11,9 @@ import type { AgentId, Store } from "./store.js";
 const wrap = (fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res)).then((r) => { if (!res.headersSent) res.json(r); }).catch(next);
 const agentId = (s: string): AgentId => { if (s !== "social-media" && s !== "supplier-outreach") throw new HttpError(404, `Unknown agent ${s}`); return s; };
 
-export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: string; env?: NodeJS.ProcessEnv } = {}) {
+export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: string; env?: NodeJS.ProcessEnv; now?: () => Date } = {}) {
   const connectors = createConnectors(store, opts.env);
-  const agents = new AgentService(store, connectors, opts.llm ?? createLlm(opts.env));
+  const agents = new AgentService(store, connectors, opts.llm ?? createLlm(opts.env), opts.now);
   const app = express();
   app.use(cors());
   app.use(express.json({ limit: "1mb" }));

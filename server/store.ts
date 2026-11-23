@@ -36,6 +36,8 @@ export interface SocialPostPayload {
   assetUrl?: string;
   campaign?: string;
   productSkus: string[];
+  /** What the post is about (a campaign product, event, launch or customer quote), so the planner does not draft it twice. */
+  topic?: string;
 }
 
 export interface SupplierEmailPayload {

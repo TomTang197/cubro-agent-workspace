@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { AGENT_NAMES, api, day, when, type ApprovalItem } from "../api";
+import { AGENT_NAMES, api, when, type ApprovalItem } from "../api";
 import { useApi } from "../useApi";
+import { SocialFields, SocialFootnote, SocialMeta, socialEdits, socialPatch, socialProblem } from "./SocialPost";
 
 export default function Approvals() {
   const { id } = useParams();
@@ -52,12 +53,15 @@ function Detail({ item, onDone, nextId }: { item: ApprovalItem; onDone: (next?: 
   const [result, setResult] = useState<ApprovalItem>();
   useEffect(() => setResult(undefined), [item.id]);
   const pending = item.status === "pending";
-  const dirty = p.type === "social_post" ? text !== p.text : text !== p.body || subject !== p.subject;
+  const [social, setSocial] = useState(p.type === "social_post" ? socialEdits(p) : undefined);
+  const patch = p.type === "social_post" ? socialPatch(p, social!) : { body: text, subject };
+  const dirty = p.type === "social_post" ? Object.keys(patch).length > 0 : text !== p.body || subject !== p.subject;
+  const problem = pending && p.type === "social_post" ? socialProblem(social!) : undefined;
 
   async function act(kind: "approve" | "reject") {
     setBusy(true); setErr(undefined);
     try {
-      if (dirty) await api(`/approvals/${item.id}`, { method: "PATCH", body: { payload: p.type === "social_post" ? { text } : { body: text, subject } } });
+      if (dirty && (kind === "approve" || p.type !== "social_post")) await api(`/approvals/${item.id}`, { method: "PATCH", body: { payload: patch } });
       const r = await api<ApprovalItem>(`/approvals/${item.id}/${kind}`, { method: "POST", body: { note } });
       setResult(r);
       setTimeout(() => onDone(nextId), 900);
@@ -73,12 +77,7 @@ function Detail({ item, onDone, nextId }: { item: ApprovalItem; onDone: (next?: 
         <div className="chips">{item.sources.map((s) => <span className="chip" key={s.ref + s.label}><b>{s.system}</b> {s.label}</span>)}</div>
       </div>
       {p.type === "social_post" ? (
-        <div className="meta-grid">
-          <div><span>Channel</span><b>{p.channel}</b></div>
-          <div><span>Scheduled</span><b>{when(p.scheduledFor)}</b></div>
-          <div><span>Campaign</span><b>{p.campaign ?? "—"}</b></div>
-          <div><span>Image</span><b>{p.assetName ? <a href={p.assetUrl} target="_blank" rel="noreferrer">{p.assetName}</a> : "—"}</b></div>
-        </div>
+        <SocialMeta p={p} />
       ) : (
         <div className="meta-grid">
           <div><span>To</span><b>{p.to.name} &lt;{p.to.address}&gt;</b></div>
@@ -88,22 +87,24 @@ function Detail({ item, onDone, nextId }: { item: ApprovalItem; onDone: (next?: 
         </div>
       )}
       {p.type === "supplier_email" && <label className="field"><span>Subject</span><input value={subject} disabled={!pending} onChange={(e) => setSubject(e.target.value)} /></label>}
-      <label className="field"><span>{p.type === "social_post" ? "Post" : "Email"} {pending && <em className="muted">— edit before approving if needed</em>}</span>
-        <textarea rows={p.type === "social_post" ? 8 : 14} value={text} disabled={!pending} onChange={(e) => setText(e.target.value)} /></label>
-      {p.type === "social_post" && <div className="chips">{p.hashtags.map((h) => <span className="chip" key={h}>{h}</span>)}</div>}
+      {p.type === "social_post" ? <SocialFields p={p} edits={social!} onChange={setSocial} pending={pending && !result} /> : (
+        <label className="field"><span>Email {pending && <em className="muted">— edit before approving if needed</em>}</span>
+          <textarea rows={14} value={text} disabled={!pending} onChange={(e) => setText(e.target.value)} /></label>
+      )}
       <p className="small muted">Doing this by hand: ~{item.estimate.manualMinutes} min. Reviewing the draft: ~{item.estimate.reviewMinutes} min{item.edited ? " (+4 min for edits)" : ""}.</p>
       {pending && !result && <>
         <label className="field"><span>Note (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why you rejected it, or anything the team should know" /></label>
         {err && <div className="error">{err}</div>}
+        {problem && <div className="error">{problem}</div>}
         <div className="row gap">
-          <button className="btn primary" disabled={busy} onClick={() => act("approve")}>{p.type === "social_post" ? "Approve & schedule" : "Approve & send"}</button>
+          <button className="btn primary" disabled={busy || !!problem} onClick={() => act("approve")}>{p.type === "social_post" ? "Approve post" : "Approve & send"}</button>
           <button className="btn" disabled={busy} onClick={() => act("reject")}>Reject</button>
           {dirty && <span className="small muted">Your edits will be saved with the approval.</span>}
         </div>
       </>}
       {shown.reviewerNote && <p className="small"><b>Reviewer note:</b> {shown.reviewerNote}</p>}
       {shown.outcome && <div className="outcome"><b>What happened</b><ul>{shown.outcome.map((o) => <li key={o.ref}><b>{o.system}:</b> {o.label}</li>)}</ul></div>}
-      {p.type === "social_post" && <p className="small muted">Post goes out {day(p.scheduledFor)} via the Marketing ClickUp list.</p>}
+      {p.type === "social_post" && <SocialFootnote item={shown} edits={social!} />}
     </section>
   );
 }

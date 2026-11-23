@@ -66,3 +66,5 @@ code { background:#0000000a; padding:1px 4px; border-radius:3px; font-size:12px;
   .menu-btn { display:block; } .content { padding:16px; } .split { grid-template-columns:1fr; } .list { position:static; max-height:320px; }
   .grid2 { grid-template-columns:1fr; } .stats { grid-template-columns:repeat(3,1fr); } .page-head { flex-direction:column; }
 }
+.field-hint { margin:-8px 0 12px; text-align:right; }
+.pair { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:0 16px; }
