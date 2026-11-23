@@ -13,6 +13,6 @@ export function useApi<T>(path: string | null) {
     return () => { current = false; };
   }, [path]);
   useEffect(() => reload(), [reload]);
-  // Never hand back rows fetched for a different path: pages render them with the new path's columns.
-  return { data: result?.path === path ? result.data : undefined, error, loading, reload };
+  // dataPath lets pages that change columns with the path skip rows fetched for the previous path.
+  return { data: result?.data, dataPath: result?.path, error, loading, reload };
 }

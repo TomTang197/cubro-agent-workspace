@@ -43,9 +43,9 @@ export default function Systems() {
   const [tab, setTab] = useState(0);
   useEffect(() => setTab(0), [system]);
   const res = resources[Math.min(tab, resources.length - 1)];
-  const { data } = useApi<Row[]>(`/systems/${res.path}`);
+  const { data, dataPath } = useApi<Row[]>(`/systems/${res.path}`);
   const [q, setQ] = useState("");
-  const rows = (data ?? []).filter((r) => !q || JSON.stringify(r).toLowerCase().includes(q.toLowerCase()));
+  const rows = (dataPath === `/systems/${res.path}` ? data ?? [] : []).filter((r) => !q || JSON.stringify(r).toLowerCase().includes(q.toLowerCase()));
   const st = statuses?.find((s) => s.system === system);
 
   return (
