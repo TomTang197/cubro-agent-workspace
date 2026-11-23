@@ -29,8 +29,14 @@ export class AgentService {
 
   get providerName() { return this.llm.name; }
 
+  /** Work that was under way when the sample data was restored belongs to the old data, so none of it is saved into the new. */
+  private unlessRestored(state: Store["state"]) {
+    if (this.store.state !== state) throw new HttpError(409, "The sample data was restored while this was under way, so nothing was saved. Please try again.");
+  }
+
   async run(agent: AgentId, triggeredBy: string, today = this.now()): Promise<AgentRun> {
     const startedAt = new Date().toISOString();
+    const state = this.store.state;
     const steps: AgentRun["steps"] = [];
     const step = (system: string, action: string, detail: string) => steps.push({ at: new Date().toISOString(), system, action, detail });
     const { settings } = this.store.state;
@@ -85,6 +91,7 @@ export class AgentService {
       }
     };
     await Promise.all(Array.from({ length: 4 }, worker));
+    this.unlessRestored(state);
     step("Model", "Draft", kept
       ? `${drafts.length - kept} of ${drafts.length} drafts written with ${this.llm.name}; ${kept} kept the built-in template (${firstError})`
       : `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} written with ${this.llm.name}`);
@@ -106,22 +113,43 @@ export class AgentService {
     return a;
   }
 
-  edit(id: string, patch: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>, by: string) {
-    const a = this.find(id);
-    if (a.status !== "pending") throw new HttpError(409, "Only pending items can be edited");
+  /** Checks a reviewer's edits and puts them on the draft, without saving. */
+  private change(a: ApprovalItem, patch: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>) {
     const allowed = a.payload.type === "social_post" ? ["text", "hashtags", "scheduledFor", "channel"] : ["subject", "body"];
     for (const k of Object.keys(patch)) if (!allowed.includes(k)) throw new HttpError(400, `Field ${k} cannot be edited`);
     if (a.payload.type === "social_post") this.checkSocialEdit(a, patch as Partial<SocialPostPayload>);
     Object.assign(a.payload, patch);
     a.edited = true;
+  }
+
+  edit(id: string, patch: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>, by: string) {
+    const a = this.find(id);
+    if (a.status !== "pending") throw new HttpError(409, "Only pending items can be edited");
+    this.change(a, patch);
     this.store.log(by, "edited draft", a.title);
     this.store.save();
     return a;
   }
 
+  /** A decision can carry the reviewer's edits. They are kept only if the decision goes through, so one that fails leaves the draft as everyone else sees it. */
+  async decide(kind: "approve" | "reject", id: string, by: string, note?: string, patch?: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>) {
+    const a = this.find(id);
+    if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
+    const before = { payload: structuredClone(a.payload), edited: a.edited };
+    try {
+      if (patch) this.change(a, patch);
+      return await this[kind](id, by, note);
+    } catch (e) {
+      // Once the draft is decided the edits are what was sent, even if saving the decision then failed.
+      if (a.status === "pending") { a.payload = before.payload; a.edited = before.edited; }
+      throw e;
+    }
+  }
+
   async approve(id: string, by: string, note?: string) {
     const a = this.find(id);
     if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
+    const state = this.store.state;
     const outcome: NonNullable<ApprovalItem["outcome"]> = [];
     if (a.payload.type === "social_post") {
       const p = a.payload;
@@ -147,6 +175,7 @@ export class AgentService {
       });
       outcome.push({ system: "ClickUp", ref: task.url, label: `Follow-up task ${task.id} in Purchasing, due ${nzDate(task.due_date ?? isoDate(addDays(nzMidnight(new Date()), FOLLOW_UP_DAYS)))}` });
     }
+    this.unlessRestored(state);
     a.status = "approved"; a.decidedAt = new Date().toISOString(); a.decidedBy = by; a.reviewerNote = note; a.outcome = outcome;
     this.recordSaving(a);
     this.store.log(by, "approved", a.title);

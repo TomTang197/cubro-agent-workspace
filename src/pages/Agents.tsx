@@ -18,22 +18,22 @@ export default function Agents() {
   }
   return (
     <>
-      <div className="page-head"><div><h1>Agents</h1><p className="muted">Each agent reads from the company's systems, drafts work, and waits for a person to approve it. During the pilot an agent only runs when someone presses “Run now”; the planned times are not switched on yet. Anything it drafts lands in Approvals.</p></div></div>
+      <div className="page-head"><div><h1>Assistants</h1><p className="muted">An assistant reads from the company's systems, writes drafts, and waits for a person to approve them. During the pilot an assistant only works when someone presses “Ask for drafts”; the planned times are not switched on yet. Whatever it drafts lands in Drafts to check.</p></div></div>
       {error && <div className="error">{error}</div>}
       {!data && !error && <div className="muted">Loading…</div>}
       {data?.map((a) => (
         <section className="card" key={a.id}>
           <div className="row between wrap agent-head"><div><h2>{a.name} {!a.enabled && <span className="pill warn">Paused</span>}</h2><p className="muted small">{a.team} · owner {a.owner} · {a.enabled ? `planned for ${a.schedule}` : "paused"}</p></div>
-            <button className="btn primary" disabled={!!busy || !a.enabled} onClick={() => run(a.id)}>{busy === a.id ? "Running…" : "Run now"}</button></div>
-          {!a.enabled && <p className="small muted">This agent is paused. Turn it back on in <Link to="/settings">Settings</Link> to run it.</p>}
-          {last?.agent === a.id && <div className="banner" role="status">Run finished: {last.summary}. {last.itemsCreated > 0 && <Link to={`/approvals?agent=${a.id}`}>Review them</Link>}</div>}
-          {failed?.agent === a.id && <div className="error" role="alert">The run didn't finish: {failed.message}</div>}
+            <button className="btn primary" disabled={!!busy || !a.enabled} onClick={() => run(a.id)}>{busy === a.id ? "Drafting…" : "Ask for drafts"}</button></div>
+          {!a.enabled && <p className="small muted">This assistant is paused. {a.owner} looks after it and can switch it back on in <Link to="/settings">Settings</Link>.</p>}
+          {last?.agent === a.id && <div className="banner" role="status">Finished: {last.summary}. {last.itemsCreated > 0 && <Link to={`/approvals?agent=${a.id}`}>Check them</Link>}</div>}
+          {failed?.agent === a.id && <div className="error" role="alert">That didn't finish: {failed.message}</div>}
           <p>{a.description}</p>
           <div className="grid2 tight">
             <div><b className="small">Reads from</b><ul className="plain">{a.reads.map((r) => <li key={r}>{r}</li>)}</ul></div>
             <div><b className="small">On approval, writes to</b><ul className="plain">{a.writes.map((r) => <li key={r}>{r}</li>)}</ul></div>
           </div>
-          <h3>Recent runs</h3>
+          <h3>What it did recently</h3>
           <div className="scroll">
             <table className="table runs"><thead><tr><th>When</th><th>Started by</th><th>Result</th></tr></thead>
               <tbody>{a.runs.slice(0, 8).map((r) => (
