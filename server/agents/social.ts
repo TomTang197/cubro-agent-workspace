@@ -245,15 +245,16 @@ export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date
   const placed = chosen.map((idea, i) => ({ idea, channel: channels[(i + offset) % channels.length], target: shiftDay(today, 1 + Math.floor((i * horizonDays) / chosen.length)) }));
   const slot = new Map<Idea, { day: string; channel: (typeof channels)[number] }>();
   for (const { idea, channel, target } of [...placed].sort((a, b) => daysBetween(a.idea.earliest, a.idea.latest) - daysBetween(b.idea.earliest, b.idea.latest))) {
+    // Each channel posts at one time of day, so a day is only open while one of the channels is free on it.
+    const open = (day: string) => [channel, ...channels].find((c) => !slots.has(`${c} ${day}`));
     let best = idea.earliest, bestCost = Infinity;
     for (let day = idea.earliest; day <= idea.latest; day = shiftDay(day, 1)) {
       const weekend = [0, 6].includes(new Date(`${day}T12:00:00Z`).getUTCDay());
-      const cost = (load.get(day) ?? 0) * 100 + Math.abs(daysBetween(day, target)) + (weekend && channel === "LinkedIn" ? 4 : 0);
+      const cost = (open(day) ? 0 : 100_000) + (load.get(day) ?? 0) * 100 + Math.abs(daysBetween(day, target)) + (weekend && (open(day) ?? channel) === "LinkedIn" ? 4 : 0);
       if (cost < bestCost) { best = day; bestCost = cost; }
     }
     load.set(best, (load.get(best) ?? 0) + 1);
-    // Each channel posts at one time of day, so two posts on one channel never share a day.
-    const free = slots.has(`${channel} ${best}`) ? channels.find((c) => !slots.has(`${c} ${best}`)) ?? channel : channel;
+    const free = open(best) ?? channel;
     slots.add(`${free} ${best}`);
     slot.set(idea, { day: best, channel: free });
   }

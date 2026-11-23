@@ -225,3 +225,15 @@ describe("a plan made while posts are already waiting", () => {
     expect(new Set(slots).size).toBe(slots.length);
   });
 });
+
+describe("a channel with one free day left", () => {
+  it("gets its post on that day, even when other channels are busy on it", () => {
+    const start = shiftDay(nzDay(today), 1), free = shiftDay(start, 6);
+    const campaign = { ...data.campaigns[0], Id: "c-long", Name: "Long campaign", Status: "In Progress" as const, StartDate: shiftDay(start, -5), EndDate: shiftDay(start, 40) };
+    const busy = Array.from({ length: DEFAULT_SETTINGS.social.horizonDays }, (_, i) => shiftDay(start, i)).map((day) => ({ channel: day === free ? "Facebook" : "LinkedIn", day }));
+    busy.push({ channel: "Facebook", day: free }, { channel: "Instagram", day: free });
+    const settings = { ...DEFAULT_SETTINGS, social: { ...DEFAULT_SETTINGS.social, channels: ["LinkedIn" as const], postsPerRun: 1 } };
+    const [draft] = buildSocialDrafts({ ...data, campaigns: [campaign], events: [], cases: [], items: data.items.map((i) => ({ ...i, isNew: false })) }, settings, today, 0, new Set(), busy);
+    expect(nzDay(post(draft).scheduledFor)).toBe(free);
+  });
+});
