@@ -31,6 +31,8 @@ export default function SettingsPage() {
     // Menu and page links don't reload the tab, so ask before they throw the edits away.
     const ask = (e: MouseEvent) => {
       const link = (e.target as Element).closest?.("a[href]");
+      // A click that opens the link in a new tab or window leaves this page, and its edits, where they are.
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
       if (!link || link.getAttribute("target") === "_blank" || link.getAttribute("href") === location.pathname) return;
       if (!window.confirm("You have changes to Settings that are not saved. Leave without saving them?")) { e.preventDefault(); e.stopPropagation(); }
     };
