@@ -93,7 +93,7 @@ export default function Savings() {
           {entries.length > 0 && <tfoot><tr><td colSpan={3}>Total of all {entries.length} rows</td><td className="num">{hm(total.manualMinutes)}</td><td className="num">{hm(total.reviewMinutes + total.rejectedMinutes)}</td><td className="num">{hm(total.minutesSaved)}</td><td className="num" /><td className="num">{money(total.dollarsSaved)}</td></tr></tfoot>}
         </table></div>
         {entries.length === 0 && <p className="muted pad">Nothing was approved or rejected in this period.</p>}
-        {entries.length > 0 && <p className="muted small pad-foot">Each row is rounded to the cent. The total is the total time saved × hourly cost, so it can differ by a cent or two from adding up the rows.</p>}
+        {entries.length > 0 && <p className="muted small pad-foot">The total is the total time saved × hourly cost. Adding up the rows shown can give a slightly different amount, because each row is rounded to the cent separately.</p>}
         {entries.length > PAGE && <p className="pad-foot"><button className="btn" onClick={() => setShowAll(!showAll)}>{showAll ? `Show only the latest ${PAGE}` : `Show all ${entries.length} rows`}</button> <span className="muted small">Showing {shown.length} of {entries.length}. The total and the export always cover all of them.</span></p>}
       </section>
     </>
