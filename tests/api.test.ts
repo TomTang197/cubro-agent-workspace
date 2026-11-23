@@ -304,6 +304,14 @@ describe("staff switching", () => {
     expect(store.state.systems.m365.messages.filter((m) => m.subject === "What was sent")).toHaveLength(1);
     await request(app).post(`/api/approvals/${third.id}/reject`).send({ user: "Mark Jensen", payload: { subject: "Typed after it was sent" } }).expect(409);
     expect(third).toMatchObject({ status: "approved", decidedBy: "Priya Raman", reviewerNote: "Agreed with Mark", payload: { subject: "What was sent" } });
+    // A reviewer who clears the note before finishing a part-done approval gets no note on the record.
+    const fourth = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
+    const again = vi.spyOn(store, "save").mockImplementationOnce(() => { throw new Error("disk full"); });
+    await request(app).post(`/api/approvals/${fourth.id}/approve`).send({ user: "Priya Raman", note: "Not needed after all" }).expect(502);
+    again.mockRestore();
+    expect(fourth.reviewerNote).toBe("Not needed after all");
+    await request(app).post(`/api/approvals/${fourth.id}/approve`).send({ user: "Priya Raman", note: "" }).expect(200);
+    expect(fourth).toMatchObject({ status: "approved", reviewerNote: "" });
     // A decision that fails before any step leaves no trace of having started.
     expect(post.outcome).toBeUndefined();
   });

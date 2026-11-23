@@ -158,8 +158,8 @@ export class AgentService {
     if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
     if (this.approving.has(id)) throw new HttpError(409, "This is already being approved. Refresh in a moment to see the result.");
     const state = this.store.state;
-    // The note given when approving began is kept if the approval is finished later without one.
-    note ||= a.reviewerNote;
+    // The note given when approving began is kept if the approval is finished later without saying; a note cleared on purpose stays cleared.
+    note ??= a.reviewerNote;
     this.approving.add(id);
     try {
       await this.carryOut(a, by, note, state);
