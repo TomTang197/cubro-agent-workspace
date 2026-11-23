@@ -117,14 +117,17 @@ export const RECENT_REPLY_DAYS = 7;
 /** Stock enquiries to the same supplier are spaced further apart than order chases. */
 export const LOW_STOCK_REPEAT_DAYS = 14;
 
-/** Orders and suppliers the agent should leave alone: a draft is already waiting, or one was sent or rejected recently. */
+/**
+ * Orders and suppliers the agent should leave alone: a draft is already waiting, or one was sent or rejected recently.
+ * Windows count calendar days in New Zealand, so an email sent on Monday is chased from Thursday's run, whatever the time of day.
+ */
 export function handledSupplierKeys(approvals: ApprovalItem[], today: Date): Set<string> {
-  const since = (days: number) => addDays(today, -days).toISOString();
+  const since = (days: number) => isoDate(addDays(nzDay(today), -days));
   const keys = new Set<string>();
   for (const a of approvals) {
     if (a.payload.type !== "supplier_email") continue;
     const window = a.payload.reason === "low_stock" ? LOW_STOCK_REPEAT_DAYS : FOLLOW_UP_DAYS;
-    if (a.status === "pending" || (a.decidedAt ?? "") >= since(window)) keys.add(supplierKey(a.payload));
+    if (a.status === "pending" || (a.decidedAt && isoDate(nzDay(new Date(a.decidedAt))) > since(window))) keys.add(supplierKey(a.payload));
   }
   return keys;
 }

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createApp } from "../server/app";
 import { generateSystemData } from "../server/data/seed";
 import { templateProvider } from "../server/llm";
-import { FOLLOW_UP_DAYS, LOW_STOCK_REPEAT_DAYS, planSupplierDrafts, supplierKey, supplierRunSummary } from "../server/agents/drafts";
+import { FOLLOW_UP_DAYS, handledSupplierKeys, LOW_STOCK_REPEAT_DAYS, planSupplierDrafts, supplierKey, supplierRunSummary } from "../server/agents/drafts";
 import { Store, type SupplierEmailPayload } from "../server/store";
 
 const today = new Date("2026-11-23T00:00:00Z");
@@ -89,6 +89,18 @@ describe("api", () => {
     expect(titles).not.toContain(sent.title);
     expect(titles).not.toContain(rejected.title);
     expect(run.body.steps.map((s: { detail: string }) => s.detail).join(" ")).toMatch(/already waiting for review, or sent or rejected in the last few days/);
+  });
+
+  it("counts the follow-up window in New Zealand calendar days, the same for a live run and seeded history", () => {
+    const { store } = setup();
+    const sent = store.state.approvals.find((a) => a.status === "pending" && (a.payload as SupplierEmailPayload).purchaseOrder)!;
+    const key = supplierKey(sent.payload as SupplierEmailPayload);
+    sent.status = "approved";
+    sent.decidedAt = "2026-11-22T20:00:00Z"; // 9am on Monday 23 November in Auckland
+    const others = store.state.approvals.filter((a) => a !== sent && (a.payload.type !== "supplier_email" || supplierKey(a.payload) !== key));
+    const handledAt = (at: string) => handledSupplierKeys([sent, ...others], new Date(at)).has(key);
+    expect(handledAt("2026-11-24T18:00:00Z")).toBe(true); // 7am Wednesday
+    expect(handledAt("2026-11-25T18:00:00Z")).toBe(false); // 7am Thursday: three days on
   });
 
   it("seeded history never emails the same supplier about the same thing twice within the follow-up window", () => {
