@@ -3,7 +3,7 @@ import { addDays, isoDate } from "../data/rng.js";
 import type { LlmProvider } from "../llm/index.js";
 import { savingFor } from "../savings.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
-import { buildSupplierDrafts, type Draft } from "./drafts.js";
+import { FOLLOW_UP_DAYS, handledSupplierKeys, nzDate, nzDay as nzMidnight, planSupplierDrafts, RECENT_REPLY_DAYS, supplierRunSummary, type Draft, type SupplierPlan } from "./drafts.js";
 import { dateProblem, nzClock, nzDay, nzTime, shiftDay, shortDay } from "./nzTime.js";
 import { EVENT_LEAD_DAYS, buildSocialDrafts, busySocialSlots, socialBrief, takenSocialTopics } from "./social.js";
 
@@ -36,6 +36,7 @@ export class AgentService {
     const { settings } = this.store.state;
     if (!settings.agents[agent].enabled) throw new HttpError(409, `${AGENTS[agent].name} is paused. Turn it back on in Settings to run it.`);
     let drafts: Draft[];
+    let plan: SupplierPlan | undefined;
     if (agent === "social-media") {
       const [campaigns, cases, accounts, items, assets] = await Promise.all([
         this.connectors.salesforce.query("Campaign"), this.connectors.salesforce.query("Case"), this.connectors.salesforce.query("Account"),
@@ -56,12 +57,18 @@ export class AgentService {
       const [items, suppliers, purchaseOrders] = await Promise.all([this.connectors.inforln.listItems(), this.connectors.inforln.listSuppliers(), this.connectors.inforln.listPurchaseOrders()]);
       step("Infor LN", "PurchaseOrder BOD", `${purchaseOrders.length} purchase orders, ${suppliers.length} suppliers, ${items.length} items`);
       const inbox = await this.connectors.m365.listMessages("Inbox");
-      step("Microsoft 365", "Graph messages", `${inbox.length} supplier emails checked for recent replies`);
-      const pending = new Set(this.store.state.approvals.filter((a) => a.status === "pending" && a.payload.type === "supplier_email").map((a) => {
-        const p = a.payload as SupplierEmailPayload;
-        return p.reason === "low_stock" ? `low_stock:${p.supplierId}` : `${p.reason}:${p.purchaseOrder}`;
-      }));
-      drafts = buildSupplierDrafts({ items, suppliers, purchaseOrders }, settings, today, pending);
+      // Latest supplier email per purchase order, so a supplier who has just written is not chased again.
+      const replies = new Map<string, { subject: string; receivedDateTime: string }>();
+      for (const m of inbox) for (const po of new Set(`${m.subject} ${m.body}`.match(/PO\d+/g) ?? [])) {
+        const seen = replies.get(po);
+        if (!seen || seen.receivedDateTime < m.receivedDateTime) replies.set(po, { subject: m.subject, receivedDateTime: m.receivedDateTime });
+      }
+      const exclude = handledSupplierKeys(this.store.state.approvals, today);
+      plan = planSupplierDrafts({ items, suppliers, purchaseOrders }, settings, today, { exclude, replies });
+      drafts = plan.drafts;
+      step("Microsoft 365", "Graph messages", `${inbox.length} supplier emails checked; ${plan.repliedRecently} order${plan.repliedRecently === 1 ? "" : "s"} left alone because the supplier wrote in the last ${RECENT_REPLY_DAYS} days`);
+      step("Agent Workspace", "Approvals", `${plan.alreadyHandled} already waiting for review, or sent or rejected in the last few days, so not drafted again`);
+      if (plan.heldBack) step("Agent Workspace", "Settings", `${plan.heldBack} more held for the next run (limit ${settings.supplier.maxEmailsPerRun} emails per run)`);
     }
     let kept = 0, firstError = "";
     const queue = [...drafts];
@@ -84,7 +91,7 @@ export class AgentService {
     const run: AgentRun = {
       id: this.store.nextId("run"), agent, startedAt, finishedAt: new Date().toISOString(), triggeredBy, provider: this.llm.name,
       itemsCreated: drafts.length, steps,
-      summary: drafts.length ? `${drafts.length} ${agent === "social-media" ? (drafts.length === 1 ? "post" : "posts") : "supplier emails"} drafted for review` : agent === "social-media" ? "Nothing new to plan: every current campaign, event and launch already has a post waiting or decided" : "Nothing needed attention",
+      summary: plan ? supplierRunSummary(plan) : drafts.length ? `${drafts.length} ${drafts.length === 1 ? "post" : "posts"} drafted for review` : "Nothing new to plan: every current campaign, event and launch already has a post waiting or decided",
     };
     for (const d of drafts) this.store.state.approvals.unshift(toApproval(d, run.id, run.finishedAt, this.store.nextId("apr")));
     this.store.state.runs.unshift(run);
@@ -135,10 +142,10 @@ export class AgentService {
       const sent = await this.connectors.m365.sendDraft(draft.id);
       outcome.push({ system: "Microsoft 365", ref: sent.id, label: `Email sent to ${p.to.address}` });
       const task = await this.connectors.clickup.createTask({
-        name: `Chase reply: ${p.supplierName} — ${p.purchaseOrder ?? p.subject}`, description: `Agent email sent ${isoDate(new Date())}. Follow up if no reply.`,
-        list: "Purchasing", assignees: [by], due_date: isoDate(addDays(new Date(), 3)), tags: ["supplier", p.reason, "agent-drafted"],
+        name: `Chase reply: ${p.supplierName} — ${p.purchaseOrder ?? p.subject}`, description: `Agent email sent to ${p.to.name} <${p.to.address}> on ${nzDate(isoDate(nzMidnight(new Date())))}. Follow up if no reply.`,
+        list: "Purchasing", assignees: [by], due_date: isoDate(addDays(nzMidnight(new Date()), FOLLOW_UP_DAYS)), tags: ["supplier", p.reason, "agent-drafted"],
       });
-      outcome.push({ system: "ClickUp", ref: task.url, label: `Follow-up task ${task.id} due in 3 days` });
+      outcome.push({ system: "ClickUp", ref: task.url, label: `Follow-up task ${task.id} in Purchasing, due ${nzDate(task.due_date ?? isoDate(addDays(nzMidnight(new Date()), FOLLOW_UP_DAYS)))}` });
     }
     a.status = "approved"; a.decidedAt = new Date().toISOString(); a.decidedBy = by; a.reviewerNote = note; a.outcome = outcome;
     this.recordSaving(a);
