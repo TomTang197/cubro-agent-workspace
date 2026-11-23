@@ -42,6 +42,9 @@ export function savingFor(a: Pick<ApprovalItem, "id" | "agent" | "title" | "stat
   };
 }
 
+/** Rounds an exact half away from zero even when floating point lands just under it (19 min at $60.90/h is $19.285). */
+const roundHalfUp = (x: number) => Math.sign(x) * Math.round(Number(Math.abs(x).toFixed(6)));
+
 export interface SavingsLine {
   approved: number;
   rejected: number;
@@ -75,7 +78,7 @@ export function summarise(entries: SavingsEntry[]): SavingsLine {
     if (!l.hourlyRates.includes(e.hourlyRate)) l.hourlyRates.push(e.hourlyRate);
   }
   let cents = 0;
-  for (const g of minutesAt.values()) cents += Math.round((g.minutes * g.rate * 100) / 60);
+  for (const g of minutesAt.values()) cents += roundHalfUp((g.minutes * g.rate * 100) / 60);
   l.dollarsSaved = cents / 100;
   l.hourlyRates.sort((a, b) => a - b);
   return l;

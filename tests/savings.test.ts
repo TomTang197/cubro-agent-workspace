@@ -126,6 +126,15 @@ describe("savings ledger", () => {
   });
 });
 
+describe("rounding", () => {
+  it("rounds an exact half cent up", () => {
+    const { store } = setup();
+    const e = { ...store.state.savings.find((x) => x.agent === "supplier-outreach" && x.minutesSaved === 19)!, hourlyRate: 60.9 };
+    expect(summarise([e]).dollarsSaved).toBe(19.29);
+    expect(summarise([{ ...e, minutesSaved: -19 }]).dollarsSaved).toBe(-19.29);
+  });
+});
+
 describe("export", () => {
   it("opens cleanly in Excel and its column totals match the page", () => {
     const { store } = setup();
