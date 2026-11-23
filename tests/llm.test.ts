@@ -1,7 +1,7 @@
 import request from "supertest";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createApp } from "../server/app";
-import { createLlm, geminiProvider, templateProvider } from "../server/llm";
+import { createLlm, geminiProvider, templateProvider, withDailyLimit } from "../server/llm";
 import { Store } from "../server/store";
 
 const today = new Date("2026-11-23T00:00:00Z");
@@ -49,6 +49,47 @@ describe("Gemini provider", () => {
     await expect(geminiProvider("secret-key", {}).polish(input)).rejects.toThrow("Gemini did not finish the draft (status incomplete)");
     mockFetch(() => reply({ status: "completed", steps: [] }));
     await expect(geminiProvider("secret-key", {}).polish(input)).rejects.toThrow("Gemini returned no text");
+  });
+});
+
+describe("daily limit on model-written drafts", () => {
+  it("stops calling the model past the limit, counts failed calls, and starts again the next day", async () => {
+    let now = new Date("2026-11-23T10:00:00Z");
+    const polish = vi.fn(async () => "model text");
+    const llm = withDailyLimit({ name: "Model", polish }, 2, () => now);
+    expect(llm.name).toBe("Model");
+    expect(await llm.polish(input)).toBe("model text");
+    polish.mockRejectedValueOnce(new Error("boom"));
+    await expect(llm.polish(input)).rejects.toThrow("boom");
+    await expect(llm.polish(input)).rejects.toThrow("daily limit of 2 model-written drafts reached");
+    expect(polish).toHaveBeenCalledTimes(2);
+    now = new Date("2026-11-24T00:00:01Z");
+    expect(await llm.polish(input)).toBe("model text");
+  });
+
+  it("applies across runs of the API, and resetting the workspace does not clear it", async () => {
+    const fetch = mockFetch(() => reply(modelOutput("Gemini wrote this.")));
+    const store = new Store({ today });
+    const app = createApp(store, { env: { GEMINI_API_KEY: "secret-key", LLM_DAILY_DRAFT_LIMIT: "10" } });
+    const model = (res: { body: { steps: { system: string; detail: string }[] } }) => res.body.steps.find((s) => s.system === "Model")!.detail;
+    const first = await request(app).post("/api/agents/social-media/run").send({}).expect(200);
+    expect(model(first)).toBe("8 drafts written with Google Gemini (gemini-4-hydrogen)");
+    store.reset(today);
+    const second = await request(app).post("/api/agents/social-media/run").send({}).expect(200);
+    expect(model(second)).toBe("2 of 8 drafts written with Google Gemini (gemini-4-hydrogen); 6 kept the built-in template (daily limit of 10 model-written drafts reached)");
+    const third = await request(app).post("/api/agents/social-media/run").send({}).expect(200);
+    expect(model(third)).toBe("0 of 8 drafts written with Google Gemini (gemini-4-hydrogen); 8 kept the built-in template (daily limit of 10 model-written drafts reached)");
+    expect(fetch).toHaveBeenCalledTimes(10);
+  });
+
+  it("defaults to 100 a day when the setting is missing or not a whole number", async () => {
+    for (const LLM_DAILY_DRAFT_LIMIT of [undefined, "", "abc", "-1", "2.5"]) {
+      const fetch = mockFetch(() => reply(modelOutput("ok")));
+      const llm = createLlm({ GEMINI_API_KEY: "secret-key", LLM_DAILY_DRAFT_LIMIT });
+      const results = await Promise.allSettled(Array.from({ length: 101 }, () => llm.polish(input)));
+      expect(results.filter((r) => r.status === "fulfilled").length).toBe(100);
+      expect(fetch).toHaveBeenCalledTimes(100);
+    }
   });
 });
 

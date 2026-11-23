@@ -61,8 +61,27 @@ export function openAiProvider(apiKey: string, env: Env = process.env): LlmProvi
   };
 }
 
+export const DEFAULT_DAILY_DRAFT_LIMIT = 100;
+
+// Caps model calls per UTC day, because the run endpoint has no sign-in of its own and every call spends the key's quota.
+// Failed calls count too. The count lives in memory, so resetting the workspace data does not clear it.
+export function withDailyLimit(provider: LlmProvider, perDay: number, now: () => Date = () => new Date()): LlmProvider {
+  let day = "", used = 0;
+  return {
+    name: provider.name,
+    async polish(input) {
+      const today = now().toISOString().slice(0, 10);
+      if (today !== day) { day = today; used = 0; }
+      if (used >= perDay) throw new Error(`daily limit of ${perDay} model-written drafts reached`);
+      used++;
+      return provider.polish(input);
+    },
+  };
+}
+
 export function createLlm(env: Env = process.env): LlmProvider {
-  if (env.GEMINI_API_KEY) return geminiProvider(env.GEMINI_API_KEY, env);
-  if (env.OPENAI_API_KEY) return openAiProvider(env.OPENAI_API_KEY, env);
-  return templateProvider;
+  const provider = env.GEMINI_API_KEY ? geminiProvider(env.GEMINI_API_KEY, env) : env.OPENAI_API_KEY ? openAiProvider(env.OPENAI_API_KEY, env) : null;
+  if (!provider) return templateProvider;
+  const limit = Number(env.LLM_DAILY_DRAFT_LIMIT);
+  return withDailyLimit(provider, env.LLM_DAILY_DRAFT_LIMIT?.trim() && Number.isInteger(limit) && limit >= 0 ? limit : DEFAULT_DAILY_DRAFT_LIMIT);
 }
