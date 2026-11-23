@@ -134,6 +134,8 @@ export class AgentService {
 
   /** Approvals being carried out right now: a second click or a second reviewer must not send the same email twice. */
   private approving = new Set<string>();
+  /** True while an approval is part-way through its steps in the connected systems. */
+  get approvingNow() { return this.approving.size > 0; }
 
   /** A decision can carry the reviewer's edits. They are kept only if the decision goes through, so one that fails leaves the draft as everyone else sees it. */
   async decide(kind: "approve" | "reject", id: string, by: string, note?: string, patch?: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>) {

@@ -134,7 +134,12 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
     return next;
   }));
   // While a real system is switched on, a run still in flight can save drafts made from it after the reset, so the workspace stays marked.
-  api.post("/reset", wrap(() => { store.reset(opts.now?.(), anyLive && store.state.heldLive); return { ok: true }; }));
+  // An approval in the middle of its steps is left to finish first: restoring under it would leave a task or an email in the other systems with no draft here to finish from.
+  api.post("/reset", wrap(() => {
+    if (agents.approvingNow) throw new HttpError(409, "A draft is being approved right now. Wait a few seconds for it to finish, then try again.");
+    store.reset(opts.now?.(), anyLive && store.state.heldLive);
+    return { ok: true };
+  }));
 
   api.get("/systems", wrap(() => Promise.all(SYSTEM_IDS.map(statusOf))));
   api.post("/systems/:system/test", wrap(async (req) => {

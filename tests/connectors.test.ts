@@ -244,6 +244,21 @@ describe("live ClickUp connector", () => {
     expect(tasks[0]).toMatchObject({ due_date: "2026-11-27", priority: "high", assignees: ["Priya Raman"], tags: ["po"], description: "Chase supplier" });
     expect(calls.every((c) => c.headers.authorization === "pk_test")).toBe(true);
   });
+  it("does not restore the sample data while an approval is part-way through a live system", async () => {
+    const store = new Store({ today });
+    let reset: { status: number; body: { error?: string } } | undefined;
+    const fetchImpl: FetchLike = async () => {
+      reset = await request(live).post("/api/reset").set("Authorization", signIn);
+      return new Response(JSON.stringify({ id: "86cx9", name: "Publish", status: { status: "to do" }, url: "https://app.clickup.test/t/86cx9" }), { status: 200 });
+    };
+    const live = createApp(store, { llm: templateProvider, env: { CONNECTOR_CLICKUP: "live", ...CU, WORKSPACE_PASSWORD: "kōwhai-42" }, fetch: fetchImpl, now: () => today });
+    const post = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "social_post")!;
+    await request(live).post(`/api/approvals/${post.id}/approve`).set("Authorization", signIn).send({ user: "Aroha Ngata" }).expect(200);
+    expect(reset).toMatchObject({ status: 409, body: { error: expect.stringMatching(/being approved right now/) } });
+    // The approval finished: the publishing task and the Teams post both exist, and the draft is still here.
+    expect(store.state.approvals.find((a) => a.id === post.id)).toMatchObject({ status: "approved", outcome: [{ step: "task" }, { step: "teams" }] });
+    await request(live).post("/api/reset").set("Authorization", signIn).expect(200);
+  });
   it("creates a task in the right list with the mapped assignee", async () => {
     const { fetchImpl, calls } = fakeFetch([["/list/902/task", () => ({ id: "86cx1", name: "Follow up PO41783", status: { status: "to do" }, url: "https://app.clickup.com/t/86cx1" })]]);
     const cu = createLiveClickUp(CU, fetchImpl);
