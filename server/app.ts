@@ -24,6 +24,9 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
   const user = (req: Request) => String(req.body?.user ?? req.header("x-cubro-user") ?? "Staff member");
 
   api.get("/health", (_req, res) => { res.json({ ok: true }); });
+  const statuses = () => Promise.all([connectors.m365.status(), connectors.salesforce.status(), connectors.clickup.status(), connectors.inforln.status()]);
+  // A demo is a workspace where no system is live, so nothing approved leaves it and the sample data can be restored freely.
+  api.get("/workspace", wrap(async () => ({ demo: (await statuses()).every((c) => c.mode === "mock") })));
 
   api.get("/dashboard", wrap(() => {
     const s = store.state;
@@ -106,7 +109,7 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
   }));
   api.post("/reset", wrap(() => { store.reset(); return { ok: true }; }));
 
-  api.get("/systems", wrap(async () => Promise.all([connectors.m365.status(), connectors.salesforce.status(), connectors.clickup.status(), connectors.inforln.status()])));
+  api.get("/systems", wrap(statuses));
   api.get("/systems/m365/:resource", wrap(async (req) => {
     const m = connectors.m365;
     switch (req.params.resource) {

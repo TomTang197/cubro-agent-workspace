@@ -7,9 +7,10 @@ let currentUser = localStorage.getItem("cubro-user") ?? "Aroha Ngata";
 export const getUser = () => currentUser;
 export const setUser = (u: string) => { currentUser = u; localStorage.setItem("cubro-user", u); };
 
-export async function api<T>(path: string, init?: { method?: string; body?: unknown }): Promise<T> {
+export async function api<T>(path: string, init?: { method?: string; body?: unknown; keepalive?: boolean }): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method: init?.method ?? "GET",
+    keepalive: init?.keepalive,
     headers: { "content-type": "application/json", "x-cubro-user": currentUser },
     body: init?.body ? JSON.stringify({ user: currentUser, ...(init.body as object) }) : init?.method && init.method !== "GET" ? JSON.stringify({ user: currentUser }) : undefined,
   });
@@ -53,3 +54,13 @@ export const todayNz = () => new Date().toLocaleDateString("en-CA", { timeZone: 
 export const AGENT_NAMES: Record<AgentId, string> = { "social-media": "Social Media Planner", "supplier-outreach": "Supplier Outreach" };
 export const TEAMS: Record<string, string[]> = { Marketing: ["Aroha Ngata", "Sophie Turner", "Liam Chen"], Purchasing: ["Priya Raman", "Mark Jensen", "Hemi Walker"] };
 export const STAFF = Object.values(TEAMS).flat();
+export const teamOf = (name: string) => Object.keys(TEAMS).find((t) => TEAMS[t].includes(name));
+/** The assistant that drafts for a person's team. */
+export const agentFor = (name: string): AgentId => (teamOf(name) === "Purchasing" ? "supplier-outreach" : "social-media");
+export const DRAFT_NOUN: Record<AgentId, [string, string]> = { "social-media": ["social post", "social posts"], "supplier-outreach": ["supplier email", "supplier emails"] };
+export const STATUS_LABEL: Record<ApprovalItem["status"], string> = { pending: "Waiting", approved: "Approved", rejected: "Sent back" };
+
+// Kept per browser: there is no login in the pilot, so these are conveniences, not access control.
+const flag = (key: string) => ({ get: () => localStorage.getItem(key) === "1", set: (on: boolean) => (on ? localStorage.setItem(key, "1") : localStorage.removeItem(key)) });
+export const guideSeen = flag("cubro-guide-seen");
+export const adminMenu = flag("cubro-admin");

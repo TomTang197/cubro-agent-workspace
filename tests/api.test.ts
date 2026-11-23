@@ -271,6 +271,24 @@ describe("settings", () => {
 });
 
 describe("staff switching", () => {
+  it("says it is a demo only while every system runs on sample data", async () => {
+    const { store, app } = setup();
+    expect((await request(app).get("/api/workspace").expect(200)).body).toEqual({ demo: true });
+    const live = createApp(store, { llm: templateProvider, env: { CONNECTOR_CLICKUP: "live" }, now: () => today });
+    expect((await request(live).get("/api/workspace").expect(200)).body).toEqual({ demo: false });
+  });
+  it("restores the sample data in one call, undoing approvals and settings", async () => {
+    const { store, app } = setup();
+    const first = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
+    await request(app).post(`/api/approvals/${first.id}/approve`).send({ user: "Priya Raman" }).expect(200);
+    await request(app).put("/api/settings").send({ agents: { "social-media": { enabled: false } } }).expect(200);
+    const waiting = () => store.state.approvals.filter((a) => a.status === "pending").length;
+    const before = waiting();
+    await request(app).post("/api/reset").expect(200);
+    expect(waiting()).toBe(before + 1);
+    expect(store.state.settings.agents["social-media"].enabled).toBe(true);
+    expect(store.state.approvals.some((a) => a.decidedBy === "Priya Raman" && a.id === first.id)).toBe(false);
+  });
   it("records runs and approvals under the staff member chosen in the workspace", async () => {
     const { app, store } = setup();
     const run = await request(app).post("/api/agents/supplier-outreach/run").set("x-cubro-user", "Hemi Walker").send({}).expect(200);
