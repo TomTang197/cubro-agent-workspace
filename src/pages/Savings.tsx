@@ -60,7 +60,7 @@ export default function Savings() {
       <div className="kpis">
         <div className="kpi"><span>Time saved</span><strong>{hm(total.minutesSaved)}</strong><small>{hm(total.manualMinutes)} by hand, {hm(total.reviewMinutes + total.rejectedMinutes)} with the agents</small></div>
         <div className="kpi"><span>Money saved</span><strong>{money(total.dollarsSaved)}</strong><small>{lines.length > 1 ? "each agent's time saved × its team's hourly cost" : "time saved × the team's hourly cost"} ({rateText(total)})</small></div>
-        <div className="kpi"><span>Drafts approved</span><strong>{total.approved}</strong><small>{total.approved ? `${Math.round((total.manualMinutes - total.reviewMinutes) / total.approved)} min saved per approved draft` : "none in this period"}, {total.rejected} rejected</small></div>
+        <div className="kpi"><span>Drafts approved</span><strong>{total.approved}</strong><small>{total.approved ? `${Math.round((total.manualMinutes - total.reviewMinutes) / total.approved)} min saved per approved draft, before rejected drafts` : "none in this period"}; {total.rejected} rejected</small></div>
       </div>
 
       <section className="card flush"><h2 className="pad-head">How it adds up</h2>
@@ -93,6 +93,7 @@ export default function Savings() {
           {entries.length > 0 && <tfoot><tr><td colSpan={3}>Total of all {entries.length} rows</td><td className="num">{hm(total.manualMinutes)}</td><td className="num">{hm(total.reviewMinutes + total.rejectedMinutes)}</td><td className="num">{hm(total.minutesSaved)}</td><td className="num" /><td className="num">{money(total.dollarsSaved)}</td></tr></tfoot>}
         </table></div>
         {entries.length === 0 && <p className="muted pad">Nothing was approved or rejected in this period.</p>}
+        {entries.length > 0 && <p className="muted small pad-foot">Each row is rounded to the cent. The total is the total time saved × hourly cost, so it can differ by a cent or two from adding up the rows.</p>}
         {entries.length > PAGE && <p className="pad-foot"><button className="btn" onClick={() => setShowAll(!showAll)}>{showAll ? `Show only the latest ${PAGE}` : `Show all ${entries.length} rows`}</button> <span className="muted small">Showing {shown.length} of {entries.length}. The total and the export always cover all of them.</span></p>}
       </section>
     </>
