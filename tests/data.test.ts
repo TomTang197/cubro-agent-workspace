@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { FX_PER_NZD, STAFF } from "../server/data/catalogue";
 import { generateSystemData } from "../server/data/seed";
+import { Store } from "../server/store";
 
 const today = new Date("2026-11-23T00:00:00Z");
 const todayIso = "2026-11-23";
@@ -153,5 +154,13 @@ describe("ClickUp sample data", () => {
     }
     expect(new Set(d.clickup.tasks.map((t) => t.id)).size).toBe(d.clickup.tasks.length);
     expect(new Set(d.clickup.tasks.map((t) => t.list))).toEqual(new Set(["Marketing", "Purchasing", "Operations", "Sales"]));
+  });
+});
+
+describe("seeded agent history", () => {
+  it("shows each past run as started by a member of staff, since nothing runs agents on a timer", () => {
+    const runs = new Store({ today }).state.runs;
+    expect(runs.length).toBeGreaterThan(40);
+    for (const r of runs) expect(staff.has(r.triggeredBy), r.triggeredBy).toBe(true);
   });
 });

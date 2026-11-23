@@ -65,5 +65,7 @@ export function generateHistory(systems: SystemData, settings: Settings, today: 
   mDrafts.forEach((d) => pending.push(toApproval(d, mRun.id, runAt, id("apr"))));
   runs.unshift(sRun, mRun);
   approvals.unshift(...pending);
+  // Nothing runs the agents on a timer: each seeded run was started by the agent's owner, the same as pressing Run now.
+  for (const r of runs) r.triggeredBy = settings.agents[r.agent].owner;
   return { approvals, runs, savings, activity };
 }
