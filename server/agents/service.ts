@@ -134,6 +134,7 @@ export class AgentService {
   /** A decision can carry the reviewer's edits. They are kept only if the decision goes through, so one that fails leaves the draft as everyone else sees it. */
   async decide(kind: "approve" | "reject", id: string, by: string, note?: string, patch?: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>) {
     const a = this.find(id);
+    if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
     const before = { payload: structuredClone(a.payload), edited: a.edited };
     try {
       if (patch) this.change(a, patch);

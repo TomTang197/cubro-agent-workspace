@@ -291,6 +291,8 @@ describe("staff switching", () => {
     await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Priya Raman", payload: { subject: "What was sent" } }).expect(500);
     save.mockRestore();
     expect(third).toMatchObject({ status: "approved", edited: true, payload: { subject: "What was sent" } });
+    await request(app).post(`/api/approvals/${third.id}/reject`).send({ user: "Mark Jensen", payload: { subject: "Typed after it was sent" } }).expect(409);
+    expect(third).toMatchObject({ status: "approved", decidedBy: "Priya Raman", payload: { subject: "What was sent" } });
   });
   it("drops an assistant's drafts if the sample data is restored while it is still writing them", async () => {
     const store = new Store({ today });
