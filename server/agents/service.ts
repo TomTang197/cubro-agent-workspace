@@ -31,6 +31,7 @@ export class AgentService {
     const steps: AgentRun["steps"] = [];
     const step = (system: string, action: string, detail: string) => steps.push({ at: new Date().toISOString(), system, action, detail });
     const { settings } = this.store.state;
+    if (!settings.agents[agent].enabled) throw new HttpError(409, `${AGENTS[agent].name} is paused. Turn it back on in Settings to run it.`);
     let drafts: Draft[];
     if (agent === "social-media") {
       const [campaigns, cases, accounts, items, assets] = await Promise.all([

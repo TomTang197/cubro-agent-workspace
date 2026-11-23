@@ -10,7 +10,7 @@ export default function Overview() {
   const t = data.totals;
   return (
     <>
-      <div className="page-head"><div><h1>Overview</h1><p className="muted">Agents draft the work from Microsoft 365, Salesforce, ClickUp and Infor LN. Staff approve it. Every approval is logged with the time it saved.</p></div></div>
+      <div className="page-head"><div><h1>Overview</h1><p className="muted">Agents are AI assistants that draft routine work from Microsoft 365, Salesforce, ClickUp and Infor LN. Nothing goes out until someone at Cubro approves it, and every approval is logged with the time it saved.</p></div></div>
       <div className="kpis">
         <Link to="/approvals" className="kpi"><span>Waiting for approval</span><strong>{t.pending}</strong><small>{t.highPriority} high priority</small></Link>
         <Link to="/savings" className="kpi"><span>Hours saved, last 30 days</span><strong>{t.hoursSaved30.toFixed(1)} h</strong><small>{t.hoursSaved.toFixed(1)} h since {day(t.pilotStart)}</small></Link>
@@ -57,7 +57,7 @@ export default function Overview() {
           </section>
         ))}
       </div>
-      <p className="muted small">Drafting model: {data.provider}</p>
+      <p className="muted small">{data.provider.startsWith("Built-in") ? "During the pilot, drafts are written from built-in templates rather than an AI model." : `Drafts are written by ${data.provider}.`}</p>
     </>
   );
 }

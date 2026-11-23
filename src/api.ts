@@ -35,4 +35,5 @@ export const pct = (n: number) => `${Math.round(n * 100)}%`;
 export const when = (iso: string) => new Date(iso).toLocaleString("en-NZ", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: "Pacific/Auckland" });
 export const day = (iso: string) => new Date(iso.length === 10 ? iso + "T00:00:00Z" : iso).toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric", timeZone: "Pacific/Auckland" });
 export const AGENT_NAMES: Record<AgentId, string> = { "social-media": "Social Media Planner", "supplier-outreach": "Supplier Outreach" };
-export const STAFF = ["Aroha Ngata", "Sophie Turner", "Liam Chen", "Priya Raman", "Mark Jensen", "Hemi Walker"];
+export const TEAMS: Record<string, string[]> = { Marketing: ["Aroha Ngata", "Sophie Turner", "Liam Chen"], Purchasing: ["Priya Raman", "Mark Jensen", "Hemi Walker"] };
+export const STAFF = Object.values(TEAMS).flat();

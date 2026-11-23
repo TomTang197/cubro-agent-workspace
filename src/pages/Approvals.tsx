@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { AGENT_NAMES, api, day, when, type ApprovalItem } from "../api";
+import { AGENT_NAMES, api, day, getUser, when, type ApprovalItem } from "../api";
 import { useApi } from "../useApi";
 
 export default function Approvals() {
@@ -64,6 +64,9 @@ function Detail({ item, onDone, nextId }: { item: ApprovalItem; onDone: (next?: 
     } catch (e) { setErr((e as Error).message); } finally { setBusy(false); }
   }
   const shown = result ?? item;
+  const signOff = p.type === "supplier_email" ? /((?:Kind|Best|Warm) regards|Ng\u0101 mihi|Thanks|Cheers),[ \t]*\n([^\n]+)/i.exec(text) : null;
+  const signedBy = signOff?.[2].trim();
+  const me = getUser();
 
   return (
     <section className="card detail">
@@ -90,6 +93,7 @@ function Detail({ item, onDone, nextId }: { item: ApprovalItem; onDone: (next?: 
       {p.type === "supplier_email" && <label className="field"><span>Subject</span><input value={subject} disabled={!pending} onChange={(e) => setSubject(e.target.value)} /></label>}
       <label className="field"><span>{p.type === "social_post" ? "Post" : "Email"} {pending && <em className="muted">— edit before approving if needed</em>}</span>
         <textarea rows={p.type === "social_post" ? 8 : 14} value={text} disabled={!pending} onChange={(e) => setText(e.target.value)} /></label>
+      {pending && !result && signOff && signedBy && signedBy !== me && <p className="small sign-note">This email is signed <b>{signedBy}</b>, the name the agent uses for every supplier email (set in Settings), and you are approving as <b>{me}</b>. <button type="button" className="link" onClick={() => setText(text.slice(0, signOff.index) + signOff[0].replace(signOff[2], me) + text.slice(signOff.index + signOff[0].length))}>Sign it as {me} instead</button></p>}
       {p.type === "social_post" && <div className="chips">{p.hashtags.map((h) => <span className="chip" key={h}>{h}</span>)}</div>}
       <p className="small muted">Doing this by hand: ~{item.estimate.manualMinutes} min. Reviewing the draft: ~{item.estimate.reviewMinutes} min{item.edited ? " (+4 min for edits)" : ""}.</p>
       {pending && !result && <>
