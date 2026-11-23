@@ -27,8 +27,8 @@ export default function Agents() {
             <div><b className="small">On approval, writes to</b><ul className="plain">{a.writes.map((r) => <li key={r}>{r}</li>)}</ul></div>
           </div>
           <h3>Recent runs</h3>
-          <table className="table"><thead><tr><th>When</th><th>Triggered by</th><th>Result</th><th>Steps</th></tr></thead>
-            <tbody>{a.runs.slice(0, 8).map((r) => <tr key={r.id}><td>{when(r.startedAt)}</td><td>{r.triggeredBy}</td><td>{r.summary}</td><td className="small muted">{r.steps.length ? r.steps.map((s) => `${s.system}: ${s.detail}`).join(" · ") : "—"}</td></tr>)}</tbody></table>
+          <div className="scroll"><table className="table"><thead><tr><th>When</th><th>Triggered by</th><th>Result</th><th>Steps</th></tr></thead>
+            <tbody>{a.runs.slice(0, 8).map((r) => <tr key={r.id}><td>{when(r.startedAt)}</td><td>{r.triggeredBy}</td><td>{r.summary}</td><td className="small muted">{r.steps.length ? r.steps.map((s) => `${s.system}: ${s.detail}`).join(" · ") : "—"}</td></tr>)}</tbody></table></div>
         </section>
       ))}
     </>

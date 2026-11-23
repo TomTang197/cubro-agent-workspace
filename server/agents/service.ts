@@ -62,14 +62,24 @@ export class AgentService {
       step("Agent Workspace", "Approvals", `${plan.alreadyHandled} already waiting for review, or sent or rejected in the last few days, so not drafted again`);
       if (plan.heldBack) step("Agent Workspace", "Settings", `${plan.heldBack} more held for the next run (limit ${settings.supplier.maxEmailsPerRun} emails per run)`);
     }
-    for (const d of drafts) {
-      if (d.payload.type === "social_post") {
-        d.payload.text = await this.llm.polish({ task: `Write a ${d.payload.channel} post`, draft: d.payload.text, context: d.rationale, tone: settings.social.tone });
-      } else {
-        d.payload.body = await this.llm.polish({ task: "Write a supplier email", draft: d.payload.body, context: d.rationale, tone: "Polite, direct, professional" });
+    let kept = 0, firstError = "";
+    const queue = [...drafts];
+    const worker = async () => {
+      for (let d = queue.shift(); d; d = queue.shift()) {
+        const p = d.payload;
+        try {
+          if (p.type === "social_post") p.text = await this.llm.polish({ task: `Write a ${p.channel} post`, draft: p.text, context: d.rationale, tone: settings.social.tone });
+          else p.body = await this.llm.polish({ task: "Write the body of a supplier email", draft: p.body, context: d.rationale, tone: "Polite, direct, professional" });
+        } catch (e) {
+          kept++;
+          firstError ||= e instanceof Error ? e.message : String(e);
+        }
       }
-    }
-    step("Model", "Draft", `${drafts.length} drafts written with ${this.llm.name}`);
+    };
+    await Promise.all(Array.from({ length: 4 }, worker));
+    step("Model", "Draft", kept
+      ? `${drafts.length - kept} of ${drafts.length} drafts written with ${this.llm.name}; ${kept} kept the built-in template (${firstError})`
+      : `${drafts.length} drafts written with ${this.llm.name}`);
     const run: AgentRun = {
       id: this.store.nextId("run"), agent, startedAt, finishedAt: new Date().toISOString(), triggeredBy, provider: this.llm.name,
       itemsCreated: drafts.length, steps,
