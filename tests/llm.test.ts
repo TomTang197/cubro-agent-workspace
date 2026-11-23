@@ -70,17 +70,17 @@ describe("daily limit on model-written drafts", () => {
   it("applies across runs of the API, and resetting the workspace does not clear it", async () => {
     const fetch = mockFetch(() => reply(modelOutput("Gemini wrote this.")));
     const store = new Store({ today });
-    const app = createApp(store, { env: { GEMINI_API_KEY: "secret-key", LLM_DAILY_DRAFT_LIMIT: "7" }, now: () => today });
+    const app = createApp(store, { env: { GEMINI_API_KEY: "secret-key", LLM_DAILY_DRAFT_LIMIT: "12" }, now: () => today });
     const model = (res: { body: { steps: { system: string; detail: string }[] } }) => res.body.steps.find((s) => s.system === "Model")!.detail;
     const first = await request(app).post("/api/agents/social-media/run").send({}).expect(200);
-    expect(model(first)).toBe("5 drafts written with Google Gemini (gemini-4-hydrogen)");
+    expect(model(first)).toBe("8 drafts written with Google Gemini (gemini-4-hydrogen)");
     store.reset(today);
     const second = await request(app).post("/api/agents/social-media/run").send({}).expect(200);
-    expect(model(second)).toBe("2 of 5 drafts written with Google Gemini (gemini-4-hydrogen); 3 kept the built-in template (daily limit of 7 model-written drafts reached)");
+    expect(model(second)).toBe("4 of 8 drafts written with Google Gemini (gemini-4-hydrogen); 4 kept the built-in template (daily limit of 12 model-written drafts reached)");
     store.reset(today);
     const third = await request(app).post("/api/agents/social-media/run").send({}).expect(200);
-    expect(model(third)).toBe("0 of 5 drafts written with Google Gemini (gemini-4-hydrogen); 5 kept the built-in template (daily limit of 7 model-written drafts reached)");
-    expect(fetch).toHaveBeenCalledTimes(7);
+    expect(model(third)).toBe("0 of 8 drafts written with Google Gemini (gemini-4-hydrogen); 8 kept the built-in template (daily limit of 12 model-written drafts reached)");
+    expect(fetch).toHaveBeenCalledTimes(12);
   });
 
   it("defaults to 100 a day when the setting is missing or not a whole number", async () => {
@@ -113,7 +113,7 @@ describe("agent runs with Gemini", () => {
   });
 
   it("keeps the template draft and says so when Gemini fails", async () => {
-    const template = createApp(new Store({ today }), { llm: templateProvider, env: {} });
+    const template = createApp(new Store({ today }), { llm: templateProvider, env: {}, now: () => today });
     const expected = await request(template).post("/api/agents/supplier-outreach/run").send({}).expect(200);
     mockFetch(() => reply({ error: { code: "rate_limit_exceeded", message: "Quota exceeded" } }, 429));
     const { res, store } = await run("supplier-outreach");

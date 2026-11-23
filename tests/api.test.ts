@@ -13,9 +13,9 @@ describe("sample data", () => {
   it("is deterministic and large", () => {
     const a = generateSystemData(1, today), b = generateSystemData(1, today);
     expect(a).toEqual(b);
-    expect(a.inforln.purchaseOrders.length).toBe(150);
-    expect(a.salesforce.accounts.length).toBe(46);
-    expect(a.clickup.tasks.length).toBe(88);
+    expect(a.inforln.purchaseOrders.length).toBeGreaterThanOrEqual(250);
+    expect(a.salesforce.accounts.length).toBeGreaterThanOrEqual(120);
+    expect(a.clickup.tasks.length).toBeGreaterThanOrEqual(250);
   });
   it("seeds a pending queue and savings history", () => {
     const { store } = setup();
@@ -101,6 +101,11 @@ describe("api", () => {
     const handledAt = (at: string) => handledSupplierKeys([sent, ...others], new Date(at)).has(key);
     expect(handledAt("2026-11-24T18:00:00Z")).toBe(true); // 7am Wednesday
     expect(handledAt("2026-11-25T18:00:00Z")).toBe(false); // 7am Thursday: three days on
+    // Finished two days after the email went (the follow-up task failed first): still chased from Thursday, when that task falls due.
+    sent.outcome = [{ system: "Microsoft 365", ref: "AAMkDraft-1", label: "Email sent", step: "email", at: sent.decidedAt }];
+    sent.decidedAt = "2026-11-24T20:00:00Z";
+    expect(handledAt("2026-11-24T18:00:00Z")).toBe(true);
+    expect(handledAt("2026-11-25T18:00:00Z")).toBe(false);
   });
 
   it("seeded history never emails the same supplier about the same thing twice within the follow-up window", () => {
@@ -288,11 +293,27 @@ describe("staff switching", () => {
     expect(post.edited).toBeFalsy();
     const third = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
     const save = vi.spyOn(store, "save").mockImplementationOnce(() => { throw new Error("disk full"); });
-    await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Priya Raman", payload: { subject: "What was sent" } }).expect(500);
+    // The first step (the draft in the mailbox) is done with the edits, so they stay even though the approval stopped there.
+    await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Priya Raman", note: "Agreed with Mark", payload: { subject: "What was sent" } }).expect(502);
     save.mockRestore();
-    expect(third).toMatchObject({ status: "approved", edited: true, payload: { subject: "What was sent" } });
+    expect(third).toMatchObject({ status: "pending", edited: true, reviewerNote: "Agreed with Mark", payload: { subject: "What was sent" }, outcome: [{ step: "draft" }] });
+    await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Mark Jensen", payload: { subject: "Typed after it was saved" } }).expect(409);
+    await request(app).post(`/api/approvals/${third.id}/reject`).send({ user: "Mark Jensen" }).expect(409);
+    expect(third).toMatchObject({ status: "pending", payload: { subject: "What was sent" } });
+    await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Priya Raman" }).expect(200);
+    expect(store.state.systems.m365.messages.filter((m) => m.subject === "What was sent")).toHaveLength(1);
     await request(app).post(`/api/approvals/${third.id}/reject`).send({ user: "Mark Jensen", payload: { subject: "Typed after it was sent" } }).expect(409);
-    expect(third).toMatchObject({ status: "approved", decidedBy: "Priya Raman", payload: { subject: "What was sent" } });
+    expect(third).toMatchObject({ status: "approved", decidedBy: "Priya Raman", reviewerNote: "Agreed with Mark", payload: { subject: "What was sent" } });
+    // A reviewer who clears the note before finishing a part-done approval gets no note on the record.
+    const fourth = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
+    const again = vi.spyOn(store, "save").mockImplementationOnce(() => { throw new Error("disk full"); });
+    await request(app).post(`/api/approvals/${fourth.id}/approve`).send({ user: "Priya Raman", note: "Not needed after all" }).expect(502);
+    again.mockRestore();
+    expect(fourth.reviewerNote).toBe("Not needed after all");
+    await request(app).post(`/api/approvals/${fourth.id}/approve`).send({ user: "Priya Raman", note: "" }).expect(200);
+    expect(fourth).toMatchObject({ status: "approved", reviewerNote: "" });
+    // A decision that fails before any step leaves no trace of having started.
+    expect(post.outcome).toBeUndefined();
   });
   it("drops an assistant's drafts if the sample data is restored while it is still writing them", async () => {
     const store = new Store({ today });
@@ -301,6 +322,15 @@ describe("staff switching", () => {
     const res = await request(app).post("/api/agents/social-media/run").send({ user: "Aroha Ngata" }).expect(409);
     expect(res.body.error).toMatch(/sample data was restored/);
     expect(restored).toBe(true);
+    expect(store.state).toEqual(new Store({ today }).state);
+  });
+  it("saves nothing from an approval if the sample data is restored while it is under way", async () => {
+    const { store, app } = setup();
+    const post = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "social_post")!;
+    const tasks = store.state.systems.clickup.tasks, add = tasks.unshift.bind(tasks);
+    tasks.unshift = (...t) => { const n = add(...t); store.reset(today); return n; };
+    const res = await request(app).post(`/api/approvals/${post.id}/approve`).send({ user: "Aroha Ngata" }).expect(409);
+    expect(res.body.error).toMatch(/sample data was restored/);
     expect(store.state).toEqual(new Store({ today }).state);
   });
   it("says it is a demo only while every system runs on sample data", async () => {

@@ -8,22 +8,31 @@ Internal workspace where AI agents do routine work inside Cubro's systems and st
 - **Supplier Outreach** (Purchasing): checks Infor LN for overdue, unconfirmed or part-delivered purchase orders and low stock, and drafts the supplier email. On approval it sends the email from Outlook and creates a ClickUp follow-up.
 - **Today**: the home page is the to-do for whoever is picked in "Working as": their team's drafts and one main button. A three-step guide shows on first open and from "How it works".
 - **Drafts to check** (approvals): one draft at a time with three choices, approve, change or send back, each saying what it does, and a few seconds to undo. The list view keeps the search and the decided drafts. Each draft shows why the assistant wrote it and which records it used.
-- **Admin**: Settings and Connected systems live here, out of the everyday menu (linked from the footer; not locked, the pilot has no login). While every connector is simulated the workspace shows a demo notice, and "Start the demo again" restores the sample data.
+- **Admin**: Settings and Connected systems live here, out of the everyday menu (linked from the footer; not locked: the pilot has no per-person login). While every connector is simulated the workspace shows a demo notice, and "Start the demo again" restores the sample data.
 - **Time & money saved**: one ledger line per decision (`server/savings.ts`). Approved: minutes by hand minus review minutes (plus 4 if edited). Rejected: the review minutes count as a cost. Priced at the team's hourly cost on the day of the decision and dated by the New Zealand calendar. The overview, the page (by period and agent) and the CSV export all sum the same lines.
 - **Connected systems**: browse the data each connector exposes.
 
 ## Systems and connectors
 
-All four systems are simulated with deterministic sample data (`server/data/seed.ts`) behind interfaces shaped like the real APIs (`server/connectors/types.ts`):
+All four systems start on deterministic sample data (`server/data/seed.ts`, company facts and catalogue in `server/data/catalogue.ts`) behind interfaces shaped like the real APIs (`server/connectors/types.ts`). Each has a live client in `server/connectors/live` that calls the real API through the same interface:
 
-| System | Interface modelled on | Mock | Live stub |
+| System | Live client calls | Turn on with | Settings |
 |---|---|---|---|
-| Microsoft 365 | Microsoft Graph v1.0 (calendar, mail, SharePoint, Teams) | `server/connectors/mock` | `server/connectors/live` |
-| Salesforce | REST API v61.0 (SOQL, sobjects) | same | same |
-| ClickUp | API v2 (lists, tasks) | same | same |
-| Infor LN | ION API / BODs (Item, SupplierPartyMaster, PurchaseOrder) | same | same |
+| Microsoft 365 | Microsoft Graph v1.0 with an Entra app registration (shared mailbox, calendar, SharePoint library, Teams channels) | `CONNECTOR_M365=live` | `M365_TENANT_ID`, `M365_CLIENT_ID`, `M365_CLIENT_SECRET`, `M365_MAILBOX`, `M365_CALENDAR_USER`, `M365_SHAREPOINT_SITE_ID`, `M365_TEAMS_TEAM_ID`, `M365_TEAMS_CHANNELS`, `M365_TEAMS_WEBHOOKS`; optional `M365_SHAREPOINT_FOLDER` |
+| Salesforce | REST API (SOQL, Task) with a connected app using the client credentials flow | `CONNECTOR_SALESFORCE=live` | `SALESFORCE_INSTANCE_URL`, `SALESFORCE_CLIENT_ID`, `SALESFORCE_CLIENT_SECRET`; optional `SALESFORCE_API_VERSION`, `SALESFORCE_FIELDS` |
+| ClickUp | API v2 (lists, tasks) with an API token | `CONNECTOR_CLICKUP=live` | `CLICKUP_API_TOKEN`, `CLICKUP_LISTS`; optional `CLICKUP_USERS` |
+| Infor LN | OData services through the ION API gateway with a service account | `CONNECTOR_INFORLN=live` | `INFORLN_ION_URL`, `INFORLN_TOKEN_URL`, `INFORLN_CLIENT_ID`, `INFORLN_CLIENT_SECRET`, `INFORLN_SERVICE_ACCOUNT_KEY`, `INFORLN_SERVICE_ACCOUNT_SECRET`, `INFORLN_COMPANY`, `INFORLN_ITEMS_PATH`, `INFORLN_SUPPLIERS_PATH`, `INFORLN_PURCHASE_ORDERS_PATH`; optional `INFORLN_PURCHASE_ORDER_LINES_PATH`, `INFORLN_FIELDS` |
 
-To connect a real system, implement its functions in `server/connectors/live/index.ts` and set `CONNECTOR_M365=live` (or `CONNECTOR_SALESFORCE`, `CONNECTOR_CLICKUP`, `CONNECTOR_INFORLN`). Nothing else changes.
+Going live, one system at a time:
+
+1. Set the system's settings as environment variables on the server. The Connected systems page lists each one in plain words with what it is for and whether it is set (`server/connectors/config.ts` is the source); values never reach the browser.
+2. Set `WORKSPACE_PASSWORD`. The browser then asks every visitor for it (any user name), and a system switched to live refuses to connect until it is set, so live records and approvals are never open to anyone who has the address. It is one shared password: who approved something is still the name picked in the workspace, so put the app behind your single sign-on if approvals need to be tied to a person. The password is only accepted over https (or from the server itself): put the app behind a proxy that ends TLS and sends `X-Forwarded-Proto: https`. If the password is later removed, a workspace that has read from or written to a real system stays closed until it is set again. To go back to an open sample-only workspace, switch the systems back to sample data, keep the password, press Reset sample data in Settings, and then remove the password.
+3. Set its `CONNECTOR_…=live` switch and restart.
+3. Open Connected systems and press **Test connection**. The card shows the record counts read from the real system, or the reason it could not connect. A system that fails does not affect the other three.
+
+Things that differ per Cubro tenant are settings, not code: Salesforce custom field names (`SALESFORCE_FIELDS`), ClickUp list and user IDs, the Infor LN service paths and property names (`INFORLN_FIELDS`), Teams channel IDs and posting webhooks. The live clients have been tested against recorded-shape responses (`tests/connectors.test.ts`), not against Cubro's own tenants, so expect to adjust those mappings on first connection.
+
+Supplier and customer email addresses in the sample data use reserved `.example` domains. The live Microsoft 365 client refuses to send to them, so a live mailbox cannot email a made-up supplier while Infor LN is still on sample data.
 
 ## Drafting model
 

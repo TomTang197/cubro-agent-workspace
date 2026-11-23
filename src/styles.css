@@ -47,7 +47,7 @@ textarea { width:100%; resize:vertical; line-height:1.5; } textarea:disabled, in
 .field { display:flex; flex-direction:column; gap:4px; margin-bottom:12px; } .field > span { font-size:12px; font-weight:500; } .field input { width:100%; }
 .check { display:flex; gap:4px; align-items:center; font-size:13px; }
 .pill { font-size:11px; padding:2px 8px; border-radius:999px; background:#0000000d; white-space:nowrap; text-transform:capitalize; }
-.pill.ok { background:#18794E1a; color:var(--ok); } .pill.bad { background:#C0392B1a; color:var(--bad); } .pill.warn { background:#B25E001a; color:var(--warn); } .pill.mock { background:#7919FF14; color:var(--accent); text-transform:none; }
+.pill.ok { background:#18794E1a; color:var(--ok); } .pill.bad { background:#C0392B1a; color:var(--bad); } .pill.warn { background:#B25E001a; color:var(--warn); } .pill.mock { background:#7919FF14; color:var(--accent); text-transform:none; } .pill.asis { text-transform:none; }
 .toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
 .seg { display:inline-flex; border:1px solid var(--accent); border-radius:var(--radius); overflow:hidden; } .seg button { border:none; border-radius:0; border-right:1px solid var(--accent); } .seg button:last-child { border-right:none; } .seg button.on { background:var(--accent); color:#fff; }
 .split { display:grid; grid-template-columns:minmax(280px,380px) 1fr; gap:16px; align-items:start; }
@@ -68,6 +68,8 @@ textarea { width:100%; resize:vertical; line-height:1.5; } textarea:disabled, in
 .agent-card h3 { margin:0; font-size:15px; }
 .plain { margin:4px 0 0; padding-left:18px; }
 .sys-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-bottom:8px; } .card.sys { color:var(--text); display:flex; flex-direction:column; gap:6px; margin:0; } .card.sys.sel { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent); }
+.golive { min-width:0; } .golive summary { cursor:pointer; display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; } .golive[open] summary { margin-bottom:8px; } .golive .table td { white-space:normal; }
+.top { margin:12px 0 0; }
 .banner { background:#18794E14; border:1px solid #18794E40; padding:10px 14px; border-radius:var(--radius); margin-bottom:16px; }
 .error { color:var(--bad); background:#C0392B0f; padding:8px 12px; border-radius:var(--radius); margin-bottom:12px; }
 code { background:#0000000a; padding:1px 4px; border-radius:3px; font-size:12px; }

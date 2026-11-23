@@ -1,10 +1,13 @@
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { ESTIMATES } from "./agents/drafts.js";
 import { AGENTS, AgentService, HttpError } from "./agents/service.js";
-import { createConnectors } from "./connectors/index.js";
+import { ConnectorError, failedStatus, isSystemId, SYSTEM_IDS, type FetchLike } from "./connectors/config.js";
+import { createConnectors, isLive, workspacePassword } from "./connectors/index.js";
+import type { SfObjects, SystemId } from "./connectors/types.js";
 import { addDays, isoDate } from "./data/rng.js";
 import { createLlm, type LlmProvider } from "./llm/index.js";
 import { AGENT_IDS, EDIT_MINUTES, nzDate, periodStart, summarise, weekStart } from "./savings.js";
@@ -14,19 +17,42 @@ import type { AgentId, Store } from "./store.js";
 const wrap = (fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res)).then((r) => { if (!res.headersSent) res.json(r); }).catch(next);
 const agentId = (s: string): AgentId => { if (s !== "social-media" && s !== "supplier-outreach") throw new HttpError(404, `Unknown agent ${s}`); return s; };
 
-export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: string; env?: NodeJS.ProcessEnv; now?: () => Date } = {}) {
-  const connectors = createConnectors(store, opts.env);
+export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: string; env?: NodeJS.ProcessEnv; fetch?: FetchLike; now?: () => Date } = {}) {
+  const env = opts.env ?? process.env;
+  const connectors = createConnectors(store, env, opts.fetch);
+  // A system that cannot be reached reports that on its own card; the other three still load.
+  const statusOf = (system: SystemId) => connectors[system].status().catch((e: unknown) => failedStatus(system, isLive(system, env) ? "live" : "mock", env, e));
   const agents = new AgentService(store, connectors, opts.llm ?? createLlm(opts.env), opts.now);
   const app = express();
   app.use(cors());
+  // With WORKSPACE_PASSWORD set, the browser asks for it before any page or record is served. Real systems stay disconnected without one.
+  const password = workspacePassword(env);
+  const anyLive = SYSTEM_IDS.some((s) => isLive(s, env));
+  const digest = (v: string) => crypto.createHash("sha256").update(v).digest();
+  app.use((req, res, next) => {
+    if (req.path === "/api/health") return next();
+    const refuse = (code: number, error: string) => { if (req.path.startsWith("/api/")) res.status(code).json({ error }); else res.status(code).type("text/plain").send(error); };
+    if (!password) {
+      // Drafts and decisions saved after a real system answered stay closed if the password is later taken away.
+      if (store.state.heldLive) return refuse(503, "This workspace holds drafts and decisions made from real systems and has no sign-in password. Set WORKSPACE_PASSWORD on the server and restart.");
+      return next();
+    }
+    // The password is only asked for over an encrypted connection (or on the server itself), so it is never sent in the clear.
+    const forwarded = req.header("x-forwarded-proto")?.split(",")[0].trim().toLowerCase();
+    const onServer = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "");
+    if (forwarded ? forwarded !== "https" : !req.secure && !onServer) return refuse(403, "Open this workspace over https. The sign-in password is not accepted on an unencrypted connection.");
+    const [scheme, value] = (req.header("authorization") ?? "").split(" ");
+    const given = scheme?.toLowerCase() === "basic" ? Buffer.from(value ?? "", "base64").toString("utf8") : "";
+    if (crypto.timingSafeEqual(digest(given.slice(given.indexOf(":") + 1)), digest(password))) return next();
+    res.status(401).set("WWW-Authenticate", 'Basic realm="Cubro agent workspace", charset="UTF-8"').json({ error: "Sign in with the workspace password to continue." });
+  });
   app.use(express.json({ limit: "1mb" }));
   const api = express.Router();
   const user = (req: Request) => String(req.body?.user ?? req.header("x-cubro-user") ?? "Staff member");
 
   api.get("/health", (_req, res) => { res.json({ ok: true }); });
-  const statuses = () => Promise.all([connectors.m365.status(), connectors.salesforce.status(), connectors.clickup.status(), connectors.inforln.status()]);
   // A demo is a workspace where no system is live, so nothing approved leaves it and the sample data can be restored freely.
-  api.get("/workspace", wrap(async () => ({ demo: (await statuses()).every((c) => c.mode === "mock") })));
+  api.get("/workspace", wrap(() => ({ demo: !anyLive })));
 
   api.get("/dashboard", wrap(() => {
     const s = store.state;
@@ -107,22 +133,36 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
     store.save();
     return next;
   }));
-  api.post("/reset", wrap(() => { store.reset(opts.now?.()); return { ok: true }; }));
+  // While a real system is switched on, a run still in flight can save drafts made from it after the reset, so the workspace stays marked.
+  // An approval in the middle of its steps is left to finish first: restoring under it would leave a task or an email in the other systems with no draft here to finish from.
+  api.post("/reset", wrap(() => {
+    if (agents.approvingNow) throw new HttpError(409, "A draft is being approved right now. Wait a few seconds for it to finish, then try again.");
+    store.reset(opts.now?.(), anyLive && store.state.heldLive);
+    return { ok: true };
+  }));
 
-  api.get("/systems", wrap(statuses));
+  api.get("/systems", wrap(() => Promise.all(SYSTEM_IDS.map(statusOf))));
+  api.post("/systems/:system/test", wrap(async (req) => {
+    if (!isSystemId(req.params.system)) throw new HttpError(404, "Unknown system");
+    const status = await statusOf(req.params.system);
+    // The reason for a failure is shown on the system's card, not kept in the activity list.
+    store.log(user(req), "tested connection", `${status.name}: ${status.connected ? "connected" : "could not connect"}`);
+    store.save();
+    return status;
+  }));
   api.get("/systems/m365/:resource", wrap(async (req) => {
     const m = connectors.m365;
     switch (req.params.resource) {
-      case "events": return m.listEvents(isoDate(addDays(new Date(), -30)), isoDate(addDays(new Date(), 90)));
+      case "events": return m.listEvents(addDays(new Date(), -90).toISOString(), addDays(new Date(), 365).toISOString());
       case "messages": return m.listMessages();
       case "assets": return m.listBrandAssets();
-      case "teams": return store.state.systems.m365.teamsPosts;
+      case "teams": return m.listTeamsPosts();
     }
     throw new HttpError(404, "Unknown resource");
   }));
   api.get("/systems/salesforce/:resource", wrap(async (req) => {
-    const map: Record<string, "Account" | "Opportunity" | "Campaign" | "Case"> = { accounts: "Account", opportunities: "Opportunity", campaigns: "Campaign", cases: "Case" };
-    if (req.params.resource === "activities") return store.state.systems.salesforce.activities;
+    const map: Record<string, keyof SfObjects> = { accounts: "Account", contacts: "Contact", opportunities: "Opportunity", campaigns: "Campaign", cases: "Case" };
+    if (req.params.resource === "activities") return connectors.salesforce.listActivities();
     const o = map[req.params.resource];
     if (!o) throw new HttpError(404, "Unknown resource");
     return connectors.salesforce.query(o);
@@ -145,7 +185,8 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
     app.get("*", (_req, res) => res.sendFile(path.join(opts.staticDir!, "index.html")));
   }
   app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err instanceof HttpError ? err.status : 500;
+    // 502: the workspace is fine, the system behind it did not answer.
+    const status = err instanceof HttpError ? err.status : err instanceof ConnectorError ? 502 : 500;
     res.status(status).json({ error: err instanceof Error ? err.message : String(err) });
   });
   return app;

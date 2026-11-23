@@ -2,6 +2,17 @@
 
 export type SystemId = "m365" | "salesforce" | "clickup" | "inforln";
 
+/** One value IT has to provide before a system can be switched from simulated to live. */
+export interface ConnectorSetting {
+  /** Environment variable name. */
+  key: string;
+  label: string;
+  help: string;
+  required: boolean;
+  /** Whether a value is present. The value itself is never sent to the browser. */
+  set: boolean;
+}
+
 export interface ConnectorStatus {
   system: SystemId;
   name: string;
@@ -9,6 +20,13 @@ export interface ConnectorStatus {
   connected: boolean;
   detail: string;
   records: Record<string, number>;
+  /** The real API the live connector calls. */
+  api: string;
+  /** What the live connector needs, and whether each value is present. */
+  settings: ConnectorSetting[];
+  /** Why the system is not connected, in plain words. */
+  error?: string;
+  checkedAt: string;
 }
 
 // ---- Microsoft 365 (Microsoft Graph: /me/events, /me/messages, /sites/.../drive, /teams/.../channels) ----
@@ -35,6 +53,14 @@ export interface MailMessage {
   folder: "Inbox" | "Sent Items" | "Drafts";
 }
 
+export interface TeamsPost {
+  id: string;
+  channel: string;
+  text: string;
+  createdDateTime: string;
+  from?: string;
+}
+
 export interface BrandAsset {
   id: string;
   name: string;
@@ -51,18 +77,33 @@ export interface M365Connector {
   createDraft(msg: Omit<MailMessage, "id" | "conversationId" | "receivedDateTime" | "isDraft" | "folder" | "bodyPreview">): Promise<MailMessage>;
   sendDraft(id: string): Promise<MailMessage>;
   listBrandAssets(): Promise<BrandAsset[]>;
-  postTeamsMessage(channel: string, text: string): Promise<{ id: string; channel: string; text: string; createdDateTime: string }>;
+  listTeamsPosts(): Promise<TeamsPost[]>;
+  postTeamsMessage(channel: string, text: string): Promise<TeamsPost>;
 }
 
-// ---- Salesforce (REST API: /sobjects/Account, Opportunity, Campaign, Product2, Case) ----
+// ---- Salesforce (REST API: SOQL on Account, Contact, Opportunity, Campaign, Case; sobjects/Task) ----
+export type CustomerMarket = "Aged Care" | "Community Care" | "Hospital Care" | "Wholesale";
+
 export interface SfAccount {
   Id: string;
   Name: string;
-  Type: "Public Hospital" | "Private Hospital" | "Aged Care" | "Hospice" | "Disability Services" | "Distributor";
+  Type: "Public Hospital" | "Private Hospital" | "Aged Care" | "Hospice" | "Community Care" | "Retail Partner";
   BillingCity: string;
   Region: string;
   AnnualSpend__c: number;
   OwnerName: string;
+  /** The Cubro market the customer belongs to. */
+  Market__c?: CustomerMarket;
+  Phone?: string;
+}
+
+export interface SfContact {
+  Id: string;
+  AccountId: string;
+  Name: string;
+  Title: string;
+  Email: string;
+  Phone: string;
 }
 
 export interface SfOpportunity {
@@ -73,6 +114,8 @@ export interface SfOpportunity {
   Amount: number;
   CloseDate: string;
   ProductSkus: string[];
+  OwnerName?: string;
+  CreatedDate?: string;
 }
 
 export interface SfCampaign {
@@ -92,16 +135,35 @@ export interface SfCase {
   Subject: string;
   AccountId: string;
   ProductSku: string;
-  Type: "Feedback" | "Complaint" | "Service";
+  Type: "Feedback" | "Complaint" | "Service" | "Enquiry";
   Description: string;
   CreatedDate: string;
+  Status?: "New" | "In Progress" | "Closed";
+  ContactName?: string;
+  OwnerName?: string;
+}
+
+export interface SfActivity {
+  Id: string;
+  WhatId: string;
+  Subject: string;
+  Description: string;
+  CreatedDate: string;
+  OwnerName?: string;
+}
+
+export interface SfObjects {
+  Account: SfAccount;
+  Contact: SfContact;
+  Opportunity: SfOpportunity;
+  Campaign: SfCampaign;
+  Case: SfCase;
 }
 
 export interface SalesforceConnector {
   status(): Promise<ConnectorStatus>;
-  query<T extends "Account" | "Opportunity" | "Campaign" | "Case">(sobject: T): Promise<
-    T extends "Account" ? SfAccount[] : T extends "Opportunity" ? SfOpportunity[] : T extends "Campaign" ? SfCampaign[] : SfCase[]
-  >;
+  query<T extends keyof SfObjects>(sobject: T): Promise<SfObjects[T][]>;
+  listActivities(): Promise<SfActivity[]>;
   logActivity(input: { WhatId: string; Subject: string; Description: string }): Promise<{ Id: string }>;
 }
 
@@ -116,6 +178,7 @@ export interface ClickUpTask {
   due_date: string | null;
   tags: string[];
   url: string;
+  priority?: "urgent" | "high" | "normal" | "low";
 }
 
 export interface ClickUpConnector {
@@ -125,12 +188,21 @@ export interface ClickUpConnector {
   updateTask(id: string, patch: Partial<Pick<ClickUpTask, "status" | "description" | "due_date">>): Promise<ClickUpTask>;
 }
 
-// ---- Infor LN (ION API / BODs: Item, SupplierPartyMaster, PurchaseOrder, InventoryCount) ----
+// ---- Infor LN (ION API gateway: items, business partners, purchase orders, inventory) ----
+/** Product categories as they appear on cubro.co.nz, plus spare parts. */
+export type ItemGroup =
+  | "Beds" | "Bedroom furniture" | "Pressure care" | "Moving and transferring" | "Falls prevention and recovery" | "Seating"
+  | "Wheelchairs" | "Powered wheelchairs" | "Mobility scooters" | "Trolleys, carts and laundry" | "Infection control"
+  | "Medical and respiratory" | "Hygiene" | "Walking and mobility aids" | "Theatre equipment" | "Spare parts";
+
 export interface LnItem {
-  item: string; // SKU
+  item: string; // Cubro product code
   description: string;
-  itemGroup: "Beds" | "Mattresses" | "Patient handling" | "Bathroom & toileting" | "Seating" | "Bariatric" | "Tables & trolleys" | "Spares";
+  itemGroup: ItemGroup;
+  /** List price, NZD excluding GST. */
   unitPrice: number;
+  /** Standard purchase cost, NZD. */
+  standardCost?: number;
   onHand: number;
   reorderPoint: number;
   safetyStock: number;
@@ -151,6 +223,9 @@ export interface LnSupplier {
   avgLeadTimeDays: number;
   onTimeRate: number; // 0..1
   categories: string[];
+  city?: string;
+  currency?: LnPurchaseOrder["currency"];
+  incoterms?: string;
 }
 
 export interface LnPurchaseOrderLine {
@@ -158,6 +233,7 @@ export interface LnPurchaseOrderLine {
   item: string;
   quantity: number;
   received: number;
+  /** Unit price in the order currency. */
   price: number;
 }
 
@@ -169,7 +245,7 @@ export interface LnPurchaseOrder {
   confirmedReceiptDate: string | null;
   status: "Created" | "Sent" | "Confirmed" | "Partially received" | "Received" | "Closed";
   buyer: string;
-  currency: "NZD" | "AUD" | "USD" | "EUR" | "CNY";
+  currency: "NZD" | "AUD" | "USD" | "EUR" | "GBP" | "CNY";
   lines: LnPurchaseOrderLine[];
 }
 

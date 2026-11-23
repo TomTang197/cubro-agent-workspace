@@ -115,6 +115,7 @@ export class AgentService {
 
   /** Checks a reviewer's edits and puts them on the draft, without saving. */
   private change(a: ApprovalItem, patch: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>) {
+    this.untouched(a, "edited");
     const allowed = a.payload.type === "social_post" ? ["text", "hashtags", "scheduledFor", "channel"] : ["subject", "body"];
     for (const k of Object.keys(patch)) if (!allowed.includes(k)) throw new HttpError(400, `Field ${k} cannot be edited`);
     if (a.payload.type === "social_post") this.checkSocialEdit(a, patch as Partial<SocialPostPayload>);
@@ -131,17 +132,23 @@ export class AgentService {
     return a;
   }
 
+  /** Approvals being carried out right now: a second click or a second reviewer must not send the same email twice. */
+  private approving = new Set<string>();
+  /** True while an approval is part-way through its steps in the connected systems. */
+  get approvingNow() { return this.approving.size > 0; }
+
   /** A decision can carry the reviewer's edits. They are kept only if the decision goes through, so one that fails leaves the draft as everyone else sees it. */
   async decide(kind: "approve" | "reject", id: string, by: string, note?: string, patch?: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>) {
     const a = this.find(id);
     if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
     const before = { payload: structuredClone(a.payload), edited: a.edited };
+    let changed = false;
     try {
-      if (patch) this.change(a, patch);
+      if (patch) { this.change(a, patch); changed = true; }
       return await this[kind](id, by, note);
     } catch (e) {
-      // Once the draft is decided the edits are what was sent, even if saving the decision then failed.
-      if (a.status === "pending") { a.payload = before.payload; a.edited = before.edited; }
+      // Once the draft is decided, or approving it has done part of the work, the edits are what went out, even if a later step or the save then failed.
+      if (changed && a.status === "pending" && !a.outcome?.length) { a.payload = before.payload; a.edited = before.edited; }
       throw e;
     }
   }
@@ -149,34 +156,23 @@ export class AgentService {
   async approve(id: string, by: string, note?: string) {
     const a = this.find(id);
     if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
+    if (this.approving.has(id)) throw new HttpError(409, "This is already being approved. Refresh in a moment to see the result.");
     const state = this.store.state;
-    const outcome: NonNullable<ApprovalItem["outcome"]> = [];
-    if (a.payload.type === "social_post") {
-      const p = a.payload;
-      const on = nzDay(p.scheduledFor);
-      const at = `${shortDay(on)} at ${nzClock(p.scheduledFor)}`;
-      if (new Date(p.scheduledFor) < this.now()) throw new HttpError(409, `This post was planned for ${shortDay(on)}, which has passed. Pick a new date or reject it.`);
-      const task = await this.connectors.clickup.createTask({
-        name: `Publish ${p.channel} post — ${new Date(p.scheduledFor).toLocaleDateString("en-NZ", { timeZone: "Pacific/Auckland" })}`,
-        description: `Publish on ${p.channel}: ${at} (NZ time)\n\n${p.text}\n\n${p.hashtags.join(" ")}\n\nImage: ${p.assetName ? `${p.assetName} ${p.assetUrl ?? ""}` : "none picked, add one before publishing"}\nApproved by ${by}${note ? `: ${note}` : ""}`,
-        list: "Marketing", assignees: [by], due_date: on, tags: ["social", p.channel.toLowerCase(), "agent-drafted"],
-      });
-      outcome.push({ system: "ClickUp", ref: task.url, label: `Task ${task.id} added to the Marketing list, to publish ${at}. The team publishes the post from there.` });
-      const post = await this.connectors.m365.postTeamsMessage("Marketing", `✅ ${p.channel} post approved by ${by} to publish ${at}: ${a.title}`);
-      outcome.push({ system: "Microsoft 365", ref: post.id, label: "Team told in the Marketing channel on Teams" });
-    } else {
-      const p = a.payload;
-      const draft = await this.connectors.m365.createDraft({ from: { name: this.store.state.settings.supplier.sender, address: "purchasing@cubro.co.nz" }, to: [p.to], subject: p.subject, body: p.body });
-      const sent = await this.connectors.m365.sendDraft(draft.id);
-      outcome.push({ system: "Microsoft 365", ref: sent.id, label: `Email sent to ${p.to.address}` });
-      const task = await this.connectors.clickup.createTask({
-        name: `Chase reply: ${p.supplierName} — ${p.purchaseOrder ?? p.subject}`, description: `Agent email sent to ${p.to.name} <${p.to.address}> on ${nzDate(isoDate(nzMidnight(new Date())))}. Follow up if no reply.`,
-        list: "Purchasing", assignees: [by], due_date: isoDate(addDays(nzMidnight(new Date()), FOLLOW_UP_DAYS)), tags: ["supplier", p.reason, "agent-drafted"],
-      });
-      outcome.push({ system: "ClickUp", ref: task.url, label: `Follow-up task ${task.id} in Purchasing, due ${nzDate(task.due_date ?? isoDate(addDays(nzMidnight(new Date()), FOLLOW_UP_DAYS)))}` });
+    // The note given when approving began is kept if the approval is finished later without saying; a note cleared on purpose stays cleared.
+    note ??= a.reviewerNote;
+    this.approving.add(id);
+    try {
+      await this.carryOut(a, by, note, state);
+    } catch (e) {
+      if (!a.outcome?.length) delete a.outcome;
+      if (e instanceof HttpError || !a.outcome) throw e;
+      const done = a.outcome.map((o) => o.label).join(". ");
+      throw new HttpError(502, `Done so far: ${done}. The next step failed: ${e instanceof Error ? e.message : String(e)} Approve again to finish; what is already done will not be repeated.`);
+    } finally {
+      this.approving.delete(id);
     }
     this.unlessRestored(state);
-    a.status = "approved"; a.decidedAt = new Date().toISOString(); a.decidedBy = by; a.reviewerNote = note; a.outcome = outcome;
+    a.status = "approved"; a.decidedAt = new Date().toISOString(); a.decidedBy = by; a.reviewerNote = note;
     this.recordSaving(a);
     this.store.log(by, "approved", a.title);
     this.store.save();
@@ -186,6 +182,7 @@ export class AgentService {
   reject(id: string, by: string, note?: string) {
     const a = this.find(id);
     if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
+    this.untouched(a, "rejected");
     a.status = "rejected"; a.decidedAt = new Date().toISOString(); a.decidedBy = by; a.reviewerNote = note;
     this.recordSaving(a);
     this.store.log(by, "rejected", `${a.title}${note ? ` — ${note}` : ""}`);
@@ -194,6 +191,64 @@ export class AgentService {
   }
 
   /** Staff can retime, retag and rewrite a post; this keeps what they save publishable. */
+  /** Once approving has started, the draft is what went out: it can only be finished, not changed or withdrawn. */
+  private untouched(a: ApprovalItem, verb: string) {
+    if (this.approving.has(a.id)) throw new HttpError(409, "This is being approved right now. Refresh in a moment to see the result.");
+    if (a.outcome?.length) throw new HttpError(409, `This cannot be ${verb}: approving it already did part of the work (${a.outcome.map((o) => o.label).join("; ")}). Approve it again to finish.`);
+  }
+
+  /** Does each step of an approval once, saving after every step so a retry picks up where a failure stopped. */
+  private async carryOut(a: ApprovalItem, by: string, note: string | undefined, state: Store["state"]) {
+    const outcome = (a.outcome ??= []);
+    const did = (step: string) => outcome.find((o) => o.step === step);
+    const record = (step: string, system: string, ref: string, label: string, replaces?: string) => {
+      this.unlessRestored(state);
+      const at = replaces ? outcome.findIndex((o) => o.step === replaces) : -1;
+      const done = { system, ref, label, step, at: new Date().toISOString() };
+      if (at >= 0) outcome[at] = done; else outcome.push(done);
+      a.reviewerNote = note;
+      this.store.save();
+    };
+    if (a.payload.type === "social_post") {
+      const p = a.payload;
+      const on = nzDay(p.scheduledFor);
+      const at = `${shortDay(on)} at ${nzClock(p.scheduledFor)}`;
+      // A part-done approval can always be finished, even late: its publishing task already exists and it can no longer be edited or rejected.
+      if (!outcome.length && new Date(p.scheduledFor) < this.now()) throw new HttpError(409, `This post was planned for ${shortDay(on)}, which has passed. Pick a new date or reject it.`);
+      if (!did("task")) {
+        const task = await this.connectors.clickup.createTask({
+          name: `Publish ${p.channel} post — ${new Date(p.scheduledFor).toLocaleDateString("en-NZ", { timeZone: "Pacific/Auckland" })}`,
+          description: `Publish on ${p.channel}: ${at} (NZ time)\n\n${p.text}\n\n${p.hashtags.join(" ")}\n\nImage: ${p.assetName ? `${p.assetName} ${p.assetUrl ?? ""}` : "none picked, add one before publishing"}\nApproved by ${by}${note ? `: ${note}` : ""}`,
+          list: "Marketing", assignees: [by], due_date: on, tags: ["social", p.channel.toLowerCase(), "agent-drafted"],
+        });
+        record("task", "ClickUp", task.url, `Task ${task.id} added to the Marketing list, to publish ${at}. The team publishes the post from there.`);
+      }
+      if (!did("teams")) {
+        const post = await this.connectors.m365.postTeamsMessage("Marketing", `✅ ${p.channel} post approved by ${by} to publish ${at}: ${a.title}`);
+        record("teams", "Microsoft 365", post.id, "Team told in the Marketing channel on Teams");
+      }
+    } else {
+      const p = a.payload;
+      if (!did("email")) {
+        if (!did("draft")) {
+          const draft = await this.connectors.m365.createDraft({ from: { name: this.store.state.settings.supplier.sender, address: "purchasing@cubro.co.nz" }, to: [p.to], subject: p.subject, body: p.body });
+          record("draft", "Microsoft 365", draft.id, `Email to ${p.to.address} saved as a draft in the purchasing mailbox, not sent yet`);
+        }
+        const sent = await this.connectors.m365.sendDraft(did("draft")!.ref);
+        record("email", "Microsoft 365", sent.id, `Email sent to ${p.to.address}`, "draft");
+      }
+      if (!did("followup")) {
+        // Dated from when the email went, which is earlier than today if this approval is being finished later.
+        const sentOn = nzMidnight(new Date(did("email")?.at ?? Date.now())), due = isoDate(addDays(sentOn, FOLLOW_UP_DAYS));
+        const task = await this.connectors.clickup.createTask({
+          name: `Chase reply: ${p.supplierName} — ${p.purchaseOrder ?? p.subject}`, description: `Agent email sent to ${p.to.name} <${p.to.address}> on ${nzDate(isoDate(sentOn))}. Follow up if no reply.`,
+          list: "Purchasing", assignees: [by], due_date: due, tags: ["supplier", p.reason, "agent-drafted"],
+        });
+        record("followup", "ClickUp", task.url, `Follow-up task ${task.id} in Purchasing, due ${nzDate(task.due_date ?? due)}`);
+      }
+    }
+  }
+
   private checkSocialEdit(a: ApprovalItem, patch: Partial<SocialPostPayload>) {
     if (patch.text !== undefined && (typeof patch.text !== "string" || !patch.text.trim())) throw new HttpError(400, "The post has no text. Write something or reject the draft.");
     if (patch.scheduledFor !== undefined) {

@@ -3,15 +3,24 @@ import type { ApprovalItem, Settings, SocialPostPayload } from "../store.js";
 import { ESTIMATES, type Draft } from "./drafts.js";
 import { daysBetween, longDay, nzClock, nzDay, nzTime, shiftDay, shortDay } from "./nzTime.js";
 
+// Keyed by the Infor LN item group (the product categories on cubro.co.nz).
 const HASHTAGS: Record<string, string[]> = {
   Beds: ["#FallsPrevention", "#AgedCareNZ"],
-  Mattresses: ["#PressureInjuryPrevention", "#WoundCare"],
-  "Patient handling": ["#SafeMovingAndHandling", "#CarerSafety"],
-  "Bathroom & toileting": ["#DignityInCare", "#Bathing"],
+  "Bedroom furniture": ["#AgedCareNZ", "#CareHomeDesign"],
+  "Pressure care": ["#PressureInjuryPrevention", "#WoundCare"],
+  "Moving and transferring": ["#SafeMovingAndHandling", "#CarerSafety"],
+  "Falls prevention and recovery": ["#FallsPrevention", "#PatientSafety"],
   Seating: ["#Seating", "#PostureCare"],
-  Bariatric: ["#BariatricCare", "#Dignity"],
-  "Tables & trolleys": ["#WardEquipment"],
-  Spares: ["#ServiceAndSupport"],
+  Wheelchairs: ["#Mobility", "#Independence"],
+  "Powered wheelchairs": ["#Mobility", "#Independence"],
+  "Mobility scooters": ["#Mobility", "#Independence"],
+  "Trolleys, carts and laundry": ["#WardEquipment"],
+  "Infection control": ["#InfectionPrevention"],
+  "Medical and respiratory": ["#RespiratoryCare"],
+  Hygiene: ["#DignityInCare", "#Bathing"],
+  "Walking and mobility aids": ["#Mobility", "#Independence"],
+  "Theatre equipment": ["#PerioperativeCare"],
+  "Spare parts": ["#ServiceAndSupport"],
 };
 
 type SocialData = Pick<SystemData["salesforce"], "campaigns" | "cases" | "accounts"> & Pick<SystemData["inforln"], "items"> & Pick<SystemData["m365"], "events" | "assets">;
@@ -180,7 +189,7 @@ export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date
   }
 
   const launches = d.items
-    .filter((p) => p.isNew && p.itemGroup !== "Spares")
+    .filter((p) => p.isNew && p.itemGroup !== "Spare parts")
     .filter((p) => !p.launchDate || (p.launchDate <= last && p.launchDate >= shiftDay(today, -LAUNCH_LOOKBACK_DAYS)))
     .sort((a, b) => (b.launchDate ?? "").localeCompare(a.launchDate ?? ""));
   for (const p of launches) {

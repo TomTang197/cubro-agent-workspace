@@ -24,7 +24,7 @@ export default function Admin({ demo, onRestart, restarting }: { demo: boolean; 
         </section>
         <section className="card"><h2>This computer</h2>
           <label className="check switch"><input type="checkbox" checked={pinned} onChange={(e) => { adminMenu.set(e.target.checked); setPinned(e.target.checked); }} /> <span><b>Keep Admin in the menu on this computer</b> <span className="muted">· otherwise it is reached from the link at the bottom of every page.</span></span></label>
-          <p className="small muted">There is no login in the pilot, so these pages are tucked away, not locked. Anyone with the address can open them.</p>
+          <p className="small muted">Nobody signs in under their own name in the pilot, so these pages are tucked away, not locked. Anyone who can open the workspace can open them.</p>
         </section>
       </div>
     </>

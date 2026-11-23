@@ -31,7 +31,9 @@ export function handledSupplierKeys(approvals: ApprovalItem[], today: Date): Set
   for (const a of approvals) {
     if (a.payload.type !== "supplier_email") continue;
     const window = a.payload.reason === "low_stock" ? LOW_STOCK_REPEAT_DAYS : FOLLOW_UP_DAYS;
-    if (a.status === "pending" || (a.decidedAt && isoDate(nzDay(new Date(a.decidedAt))) > since(window))) keys.add(supplierKey(a.payload));
+    // An approval finished later than its email went counts from the email, the same day its follow-up task is dated from.
+    const from = a.outcome?.find((o) => o.step === "email")?.at ?? a.decidedAt;
+    if (a.status === "pending" || (from && isoDate(nzDay(new Date(from))) > since(window))) keys.add(supplierKey(a.payload));
   }
   return keys;
 }
@@ -67,7 +69,8 @@ export function planSupplierDrafts(d: SupplierData, settings: Settings, today: D
   const recentReply = isoDate(addDays(today, -RECENT_REPLY_DAYS));
   const out: (Draft & { rank: number })[] = [];
   let alreadyHandled = 0, repliedRecently = 0;
-  const sup = (id: string) => d.suppliers.find((s) => s.supplier === id)!;
+  // An order or item whose supplier is missing from Infor LN has nobody to email: it is left out and the rest of the run carries on.
+  const sup = (id: string) => d.suppliers.find((s) => s.supplier === id && s.email);
   const itemName = (sku: string) => d.items.find((i) => i.item === sku)?.description ?? sku;
   const openStatuses = ["Created", "Sent", "Confirmed", "Partially received"];
   const sign = `Kind regards,\n${sender}\nPurchasing Officer, Cubro Ltd\nTauriko, Tauranga, New Zealand`;
@@ -79,6 +82,7 @@ export function planSupplierDrafts(d: SupplierData, settings: Settings, today: D
   for (const po of d.purchaseOrders) {
     if (!openStatuses.includes(po.status) || po.orderDate > t) continue;
     const s = sup(po.supplier);
+    if (!s) continue;
     const due = po.confirmedReceiptDate ?? po.plannedReceiptDate;
     let reason: SupplierEmailPayload["reason"] | undefined;
     // The balance of a part delivery is only chased once the order's due date has passed.
@@ -118,8 +122,9 @@ export function planSupplierDrafts(d: SupplierData, settings: Settings, today: D
   const bySupplier = new Map<string, typeof low>();
   for (const i of low) bySupplier.set(i.primarySupplier, [...(bySupplier.get(i.primarySupplier) ?? []), i]);
   for (const [sid, list] of bySupplier) {
-    if (exclude.has(`low_stock:${sid}`)) { alreadyHandled++; continue; }
     const s = sup(sid);
+    if (!s) continue;
+    if (exclude.has(`low_stock:${sid}`)) { alreadyHandled++; continue; }
     // Stock levels stay in the reviewer's notes; the supplier only sees what we want to buy.
     const lines = list.map((i) => `  • ${i.item} ${i.description} — about ${Math.max(i.reorderPoint * 2 - i.onHand, Math.ceil(i.avgMonthlyDemand * 2))} units`).join("\n");
     const stock = list.map((i) => `${i.item}: ${i.onHand} on hand, ${openQty(i.item)} on order, reorder point ${i.reorderPoint}, about ${i.avgMonthlyDemand} used a month`).join("; ");
