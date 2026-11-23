@@ -48,6 +48,8 @@ export interface SupplierEmailPayload {
   reason: "overdue" | "unconfirmed" | "low_stock" | "partial";
   purchaseOrder?: string;
   items: string[];
+  /** The reply-by date written into the body (YYYY-MM-DD), so a draft approved late can be flagged. */
+  replyBy?: string;
 }
 
 export interface AgentRun {

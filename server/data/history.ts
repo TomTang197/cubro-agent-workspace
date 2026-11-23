@@ -1,4 +1,4 @@
-import { buildSocialDrafts, buildSupplierDrafts } from "../agents/drafts.js";
+import { buildSocialDrafts, handledSupplierKeys, LOW_STOCK_REPEAT_DAYS, planSupplierDrafts, supplierRunSummary, type Draft } from "../agents/drafts.js";
 import { toApproval } from "../agents/service.js";
 import { nzDate, nzTime, savingFor } from "../savings.js";
 import type { ActivityEntry, AgentRun, ApprovalItem, SavingsEntry, Settings } from "../store.js";
@@ -25,15 +25,18 @@ export function generateHistory(systems: SystemData, settings: Settings, today: 
     const date = addDays(today, -day);
     const dow = date.getUTCDay();
     if (dow === 0 || dow === 6) continue;
-    const jobs: { agent: "social-media" | "supplier-outreach"; drafts: ReturnType<typeof buildSupplierDrafts> }[] = [];
+    const jobs: { agent: "social-media" | "supplier-outreach"; drafts: Draft[] }[] = [];
     if (dow === 1) jobs.push({ agent: "social-media", drafts: buildSocialDrafts({ ...systems.salesforce, ...systems.inforln, ...systems.m365 }, settings, date, day) });
     // Older history is lighter: the pilot ramped up over the eight weeks.
     const supplierCount = day > 35 ? 2 : day > 14 ? 4 : 6;
-    jobs.push({ agent: "supplier-outreach", drafts: buildSupplierDrafts(systems.inforln, settings, date).slice(0, supplierCount) });
+    // Stock enquiries stop a fortnight back, so the ones in today's queue are due again rather than repeats.
+    const supplierDrafts = planSupplierDrafts(systems.inforln, settings, date, { exclude: handledSupplierKeys(approvals, date) }).drafts
+      .filter((d) => day > LOW_STOCK_REPEAT_DAYS || (d.payload.type === "supplier_email" && d.payload.reason !== "low_stock"));
+    jobs.push({ agent: "supplier-outreach", drafts: supplierDrafts.slice(0, supplierCount) });
 
     for (const job of jobs) {
       const at = nzTime(isoDate(date), job.agent === "social-media" ? 7.5 : 7).toISOString();
-      const run: AgentRun = { id: id("run"), agent: job.agent, startedAt: at, finishedAt: at, triggeredBy: "Schedule", provider: "Built-in templates", itemsCreated: job.drafts.length, steps: [], summary: `${job.drafts.length} drafts for review` };
+      const run: AgentRun = { id: id("run"), agent: job.agent, startedAt: at, finishedAt: at, triggeredBy: "Schedule", provider: "Built-in templates", itemsCreated: job.drafts.length, steps: [], summary: job.agent === "supplier-outreach" ? supplierRunSummary({ drafts: job.drafts, heldBack: 0 }) : `${job.drafts.length} drafts for review` };
       runs.unshift(run);
       for (const d of job.drafts) {
         const a = toApproval(d, run.id, at, id("apr"));
@@ -56,8 +59,9 @@ export function generateHistory(systems: SystemData, settings: Settings, today: 
   const pending: ApprovalItem[] = [];
   const runAt = new Date(Math.min(nzTime(isoDate(today), 7).getTime(), now.getTime())).toISOString();
   const sRun: AgentRun = { id: id("run"), agent: "supplier-outreach", startedAt: runAt, finishedAt: runAt, triggeredBy: "Schedule", provider: "Built-in templates", itemsCreated: 0, steps: [], summary: "" };
-  const sDrafts = buildSupplierDrafts(systems.inforln, settings, today);
-  sRun.itemsCreated = sDrafts.length; sRun.summary = `${sDrafts.length} supplier emails drafted for review`;
+  const sPlan = planSupplierDrafts(systems.inforln, settings, today, { exclude: handledSupplierKeys(approvals, today) });
+  const sDrafts = sPlan.drafts;
+  sRun.itemsCreated = sDrafts.length; sRun.summary = supplierRunSummary(sPlan);
   sDrafts.forEach((d) => pending.push(toApproval(d, sRun.id, runAt, id("apr"))));
   const mRun: AgentRun = { id: id("run"), agent: "social-media", startedAt: runAt, finishedAt: runAt, triggeredBy: "Schedule", provider: "Built-in templates", itemsCreated: 0, steps: [], summary: "" };
   const mDrafts = buildSocialDrafts({ ...systems.salesforce, ...systems.inforln, ...systems.m365 }, settings, today, 0);
