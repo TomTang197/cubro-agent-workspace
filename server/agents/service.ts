@@ -29,8 +29,14 @@ export class AgentService {
 
   get providerName() { return this.llm.name; }
 
+  /** Work that was under way when the sample data was restored belongs to the old data, so none of it is saved into the new. */
+  private unlessRestored(state: Store["state"]) {
+    if (this.store.state !== state) throw new HttpError(409, "The sample data was restored while this was under way, so nothing was saved. Please try again.");
+  }
+
   async run(agent: AgentId, triggeredBy: string, today = this.now()): Promise<AgentRun> {
     const startedAt = new Date().toISOString();
+    const state = this.store.state;
     const steps: AgentRun["steps"] = [];
     const step = (system: string, action: string, detail: string) => steps.push({ at: new Date().toISOString(), system, action, detail });
     const { settings } = this.store.state;
@@ -85,6 +91,7 @@ export class AgentService {
       }
     };
     await Promise.all(Array.from({ length: 4 }, worker));
+    this.unlessRestored(state);
     step("Model", "Draft", kept
       ? `${drafts.length - kept} of ${drafts.length} drafts written with ${this.llm.name}; ${kept} kept the built-in template (${firstError})`
       : `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} written with ${this.llm.name}`);
@@ -122,6 +129,7 @@ export class AgentService {
   async approve(id: string, by: string, note?: string) {
     const a = this.find(id);
     if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
+    const state = this.store.state;
     const outcome: NonNullable<ApprovalItem["outcome"]> = [];
     if (a.payload.type === "social_post") {
       const p = a.payload;
@@ -147,6 +155,7 @@ export class AgentService {
       });
       outcome.push({ system: "ClickUp", ref: task.url, label: `Follow-up task ${task.id} in Purchasing, due ${nzDate(task.due_date ?? isoDate(addDays(nzMidnight(new Date()), FOLLOW_UP_DAYS)))}` });
     }
+    this.unlessRestored(state);
     a.status = "approved"; a.decidedAt = new Date().toISOString(); a.decidedBy = by; a.reviewerNote = note; a.outcome = outcome;
     this.recordSaving(a);
     this.store.log(by, "approved", a.title);

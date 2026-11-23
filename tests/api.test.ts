@@ -281,6 +281,15 @@ describe("staff switching", () => {
     expect(second).toMatchObject({ status: "pending" });
     expect(second.edited).toBeFalsy();
   });
+  it("drops an assistant's drafts if the sample data is restored while it is still writing them", async () => {
+    const store = new Store({ today });
+    let restored = false;
+    const app: ReturnType<typeof createApp> = createApp(store, { env: {}, now: () => today, llm: { name: "slow", polish: async ({ draft }) => { if (!restored) { restored = true; await request(app).post("/api/reset").expect(200); } return draft; } } });
+    const res = await request(app).post("/api/agents/social-media/run").send({ user: "Aroha Ngata" }).expect(409);
+    expect(res.body.error).toMatch(/sample data was restored/);
+    expect(restored).toBe(true);
+    expect(store.state).toEqual(new Store({ today }).state);
+  });
   it("says it is a demo only while every system runs on sample data", async () => {
     const { store, app } = setup();
     expect((await request(app).get("/api/workspace").expect(200)).body).toEqual({ demo: true });

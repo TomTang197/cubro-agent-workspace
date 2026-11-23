@@ -109,7 +109,7 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
     store.save();
     return next;
   }));
-  api.post("/reset", wrap(() => { store.reset(); return { ok: true }; }));
+  api.post("/reset", wrap(() => { store.reset(opts.now?.()); return { ok: true }; }));
 
   api.get("/systems", wrap(statuses));
   api.get("/systems/m365/:resource", wrap(async (req) => {
