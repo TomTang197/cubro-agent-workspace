@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink, Route, Routes, useLocation } from "react-router-dom";
-import { TEAMS, adminMenu, api, getUser, guideSeen, setUser } from "./api";
+import { TEAMS, adminMenu, getUser, guideSeen, restartDemo, setUser } from "./api";
 import { useApi } from "./useApi";
 import Guide from "./components/Guide";
 import Admin from "./pages/Admin";
@@ -41,7 +41,7 @@ export default function App() {
   // One click puts the demo back to its start: the sample data and the first-open guide.
   const restart = async () => {
     setRestarting(true); setRestartError(undefined);
-    try { await api("/reset", { method: "POST" }); guideSeen.set(false); location.href = "/"; }
+    try { await restartDemo(); location.href = "/"; }
     catch (e) { setRestartError(e instanceof Error ? e.message : String(e)); setRestarting(false); }
   };
   useEffect(() => {

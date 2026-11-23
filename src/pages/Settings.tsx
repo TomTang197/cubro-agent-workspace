@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { STAFF, api, type AgentId, type Settings, guideSeen } from "../api";
+import { STAFF, api, type AgentId, type Settings, restartDemo } from "../api";
 import { CHANNELS, validateSettings } from "../../server/settings";
 import { useApi } from "../useApi";
 
@@ -56,7 +56,7 @@ export default function SettingsPage() {
   const discard = () => { setS(structuredClone(saved)); setStatus(undefined); };
   const reset = async () => {
     if (!confirm("Start the pilot again from the original sample data?\n\nEvery draft, approval, saving and setting goes back to how it started, for everyone, and the three-step guide shows again on this computer. This can't be undone.")) return;
-    try { await api("/reset", { method: "POST" }); guideSeen.set(false); location.href = "/"; }
+    try { await restartDemo(); location.href = "/"; }
     catch (e) { setStatus({ kind: "bad", text: `Reset failed: ${e instanceof Error ? e.message : String(e)}` }); }
   };
   const edit = (change: (draft: Settings) => void) => { const next = structuredClone(s); change(next); setS(next); setStatus(undefined); };

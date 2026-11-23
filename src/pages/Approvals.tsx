@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { fromNzInput, nzDay, shortDay } from "../../server/agents/nzTime";
-import { AGENT_NAMES, DRAFT_NOUN, STATUS_LABEL, TEAMS, agentFor, api, getUser, teamOf, todayNz, weekday, when, type AgentId, type ApprovalItem } from "../api";
+import { AGENT_NAMES, DRAFT_NOUN, RESTART, STATUS_LABEL, TEAMS, agentFor, api, getUser, teamOf, todayNz, weekday, when, type AgentId, type ApprovalItem } from "../api";
 
 const AGENT_TEAM: Record<AgentId, string> = { "social-media": "Marketing", "supplier-outreach": "Purchasing" };
 import { useApi } from "../useApi";
@@ -74,10 +74,14 @@ export default function Approvals() {
     reload();
     nav(next ? `/approvals/${next}${qs}` : `/approvals${qs}`);
   };
-  const undo = () => {
+  const drop = () => {
     const h = heldRef.current;
+    if (h) { window.clearTimeout(timer.current); heldRef.current = undefined; setHeld(undefined); setDecided((d) => d.filter((x) => x !== h.item.id)); }
+    return h;
+  };
+  const undo = () => {
+    const h = drop();
     if (!h) return;
-    window.clearTimeout(timer.current); heldRef.current = undefined; setHeld(undefined); setDecided((d) => d.filter((x) => x !== h.item.id));
     giveBack(h);
     nav(`/approvals/${h.item.id}${qs}`);
   };
@@ -87,7 +91,8 @@ export default function Approvals() {
   useEffect(() => {
     const flush = () => leave.current(true);
     window.addEventListener("pagehide", flush);
-    return () => { window.removeEventListener("pagehide", flush); flush(); };
+    window.addEventListener(RESTART, drop);
+    return () => { window.removeEventListener("pagehide", flush); window.removeEventListener(RESTART, drop); flush(); };
   }, []);
 
   useEffect(() => { if (restore.current?.id === selected?.id) restore.current = undefined; }, [selected?.id]);

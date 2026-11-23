@@ -63,4 +63,12 @@ export const STATUS_LABEL: Record<ApprovalItem["status"], string> = { pending: "
 // Kept per browser: there is no login in the pilot, so these are conveniences, not access control.
 const flag = (key: string) => ({ get: () => localStorage.getItem(key) === "1", set: (on: boolean) => (on ? localStorage.setItem(key, "1") : localStorage.removeItem(key)) });
 export const guideSeen = flag("cubro-guide-seen");
+
+export const RESTART = "cubro-restart";
+/** Puts the demo back to its start: the sample data and the first-open guide. A decision still counting down is dropped, not sent into the restored data. */
+export async function restartDemo() {
+  window.dispatchEvent(new Event(RESTART));
+  await api("/reset", { method: "POST" });
+  guideSeen.set(false);
+}
 export const adminMenu = flag("cubro-admin");
