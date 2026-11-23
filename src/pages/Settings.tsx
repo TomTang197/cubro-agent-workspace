@@ -28,8 +28,15 @@ export default function SettingsPage() {
   useEffect(() => {
     if (!dirty) return;
     const warn = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = ""; };
+    // Menu and page links don't reload the tab, so ask before they throw the edits away.
+    const ask = (e: MouseEvent) => {
+      const link = (e.target as Element).closest?.("a[href]");
+      if (!link || link.getAttribute("target") === "_blank" || link.getAttribute("href") === location.pathname) return;
+      if (!window.confirm("You have changes to Settings that are not saved. Leave without saving them?")) { e.preventDefault(); e.stopPropagation(); }
+    };
     window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
+    document.addEventListener("click", ask, true);
+    return () => { window.removeEventListener("beforeunload", warn); document.removeEventListener("click", ask, true); };
   }, [dirty]);
   if (loadError) return <div className="error">Settings couldn't be loaded: {loadError}</div>;
   if (!s || !saved) return <div className="muted">Loading…</div>;

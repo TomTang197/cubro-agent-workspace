@@ -15,7 +15,7 @@ export const AGENTS: Record<AgentId, { name: string; description: string; team: 
   "supplier-outreach": {
     name: "Supplier Outreach",
     team: "Purchasing",
-    description: "Checks Infor LN every morning for overdue, unconfirmed or part-delivered purchase orders and low-stock items, and drafts the supplier email for each.",
+    description: "Checks Infor LN for overdue, unconfirmed or part-delivered purchase orders and low-stock items, and drafts the supplier email for each.",
     reads: ["Infor LN purchase orders, items & suppliers", "Outlook supplier inbox"],
     writes: ["Outlook email to supplier", "ClickUp Purchasing follow-up task"],
   },
