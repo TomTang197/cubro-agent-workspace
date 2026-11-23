@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { AGENT_NAMES, api, day, when, type ApprovalItem } from "../api";
+import { AGENT_NAMES, api, day, todayNz, weekday, when, type ApprovalItem } from "../api";
 import { useApi } from "../useApi";
 
 export default function Approvals() {
@@ -64,7 +64,11 @@ function Detail({ item, onDone, onDirty, nextId }: { item: ApprovalItem; onDone:
   const dirty = p.type === "social_post" ? text !== p.text : text !== p.body || subject !== p.subject;
   useEffect(() => { onDirty(pending && dirty && !result); return () => onDirty(false); }, [pending, dirty, result]);
 
+  // A draft approved days after it was written would ask the supplier to reply by a date that has gone.
+  const lateReplyBy = pending && p.type === "supplier_email" && p.replyBy && p.replyBy < todayNz() && text.includes(weekday(p.replyBy)) ? weekday(p.replyBy) : undefined;
+
   async function act(kind: "approve" | "reject") {
+    if (kind === "approve" && lateReplyBy && !window.confirm(`This email asks for a reply by ${lateReplyBy}, which has passed. Send it anyway?`)) return;
     setBusy(true); setErr(undefined);
     try {
       if (dirty) await api(`/approvals/${item.id}`, { method: "PATCH", body: { payload: p.type === "social_post" ? { text } : { body: text, subject } } });
@@ -100,6 +104,7 @@ function Detail({ item, onDone, onDirty, nextId }: { item: ApprovalItem; onDone:
       {p.type === "supplier_email" && <label className="field"><span>Subject</span><input value={subject} disabled={!pending} onChange={(e) => setSubject(e.target.value)} /></label>}
       <label className="field"><span>{p.type === "social_post" ? "Post" : "Email"} {pending && <em className="muted">— edit before approving if needed</em>}</span>
         <textarea rows={p.type === "social_post" ? 8 : 14} value={text} disabled={!pending} onChange={(e) => setText(e.target.value)} /></label>
+      {lateReplyBy && !result && <div className="error" role="alert">This email asks for a reply by {lateReplyBy}, which has passed. Change the date before you send it.</div>}
       {p.type === "social_post" && <div className="chips">{p.hashtags.map((h) => <span className="chip" key={h}>{h}</span>)}</div>}
       <p className="small muted">Doing this by hand: ~{item.estimate.manualMinutes} min. Reviewing the draft: ~{item.estimate.reviewMinutes} min{item.edited ? " (+4 min for edits)" : ""}.</p>
       {pending && !result && <>
