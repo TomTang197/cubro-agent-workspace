@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, useParams } from "react-router-dom";
 import { day, nzd, when, type ConnectorStatus } from "../api";
 import { useApi } from "../useApi";
@@ -41,6 +41,7 @@ export default function Systems() {
   const { data: statuses } = useApi<ConnectorStatus[]>("/systems");
   const resources = RESOURCES[system] ?? RESOURCES.m365;
   const [tab, setTab] = useState(0);
+  useEffect(() => setTab(0), [system]);
   const res = resources[Math.min(tab, resources.length - 1)];
   const { data } = useApi<Row[]>(`/systems/${res.path}`);
   const [q, setQ] = useState("");
