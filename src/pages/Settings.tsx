@@ -74,7 +74,7 @@ export default function SettingsPage() {
         </section>
         <section className="card"><h2>About this pilot</h2>
           <p className="small">The four connected systems (Microsoft 365, Salesforce, ClickUp and Infor LN) are simulated with made-up sample data, so nothing you approve here reaches a real supplier, customer or social channel.</p>
-          <p className="small muted">Connecting the real systems is a job for IT; the steps are in the project README.</p>
+          <p className="small muted">Connecting the real systems, or having Google Gemini write the drafts (<code>GEMINI_API_KEY</code>), is a job for IT; the steps are in the project README.</p>
           <h3>Start again</h3>
           <p className="small">Puts every draft, approval, saving and setting back to the original sample, for everyone. Useful before a demo; it can't be undone.</p>
           <button className="btn danger" onClick={reset}>Reset sample data</button>
