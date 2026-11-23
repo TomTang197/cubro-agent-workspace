@@ -7,7 +7,7 @@ Internal workspace where AI agents do routine work inside Cubro's systems and st
 - **Social Media Planner** (Marketing): plans two weeks of LinkedIn, Facebook and Instagram posts from Salesforce campaigns and customer feedback, Outlook events, new Infor LN items and SharePoint images. On approval it creates a ClickUp Marketing task and posts to Teams.
 - **Supplier Outreach** (Purchasing): checks Infor LN for overdue, unconfirmed or part-delivered purchase orders and low stock, and drafts the supplier email. On approval it sends the email from Outlook and creates a ClickUp follow-up.
 - **Approvals**: one queue; staff can edit, approve or reject with a note. Each draft shows why the agent made it and which records it used.
-- **Time & money saved**: manual minutes vs. review minutes per job, priced at each team's hourly cost, with CSV export.
+- **Time & money saved**: one ledger line per decision (`server/savings.ts`). Approved: minutes by hand minus review minutes (plus 4 if edited). Rejected: the review minutes count as a cost. Priced at the team's hourly cost on the day of the decision and dated by the New Zealand calendar. The overview, the page (by period and agent) and the CSV export all sum the same lines.
 - **Connected systems**: browse the data each connector exposes.
 
 ## Systems and connectors
