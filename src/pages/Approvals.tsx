@@ -41,9 +41,9 @@ export default function Approvals() {
   const [done, setDone] = useState<ApprovalItem>();
   const [failed, setFailed] = useState<{ item: ApprovalItem; message: string }>();
   // The reviewer's typing, handed back to the draft once when its decision is undone or did not go through.
-  const restore = useRef<{ id: string; edits: Edits }>();
-  const giveBack = (h: Held) => { restore.current = h.changes && { id: h.item.id, edits: h.changes.edits }; };
-  const take = (draft: string) => (restore.current?.id === draft ? restore.current.edits : undefined);
+  const restore = useRef<{ id: string; note: string; edits?: Edits }>();
+  const giveBack = (h: Held) => { restore.current = h.changes || h.note ? { id: h.item.id, note: h.note, edits: h.changes?.edits } : undefined; };
+  const take = (draft: string) => (restore.current?.id === draft ? restore.current : undefined);
   const waiting = (data ?? []).filter((a) => !(a.status === "pending" && decided.includes(a.id)));
   const filtered = waiting.filter((a) => focus || !q || a.title.toLowerCase().includes(q.toLowerCase()) || (dirty.current && a.id === editing.current));
   const list = focus ? [...filtered].sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high")) : filtered;
@@ -151,15 +151,16 @@ export default function Approvals() {
   );
 }
 
-function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDecide: (kind: "approve" | "reject", note: string, changes?: Changes) => void; onDirty: (dirty: boolean) => void; restore?: Edits }) {
+function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDecide: (kind: "approve" | "reject", note: string, changes?: Changes) => void; onDirty: (dirty: boolean) => void; restore?: { note: string; edits?: Edits } }) {
   const p = item.payload;
-  const [text, setText] = useState(restore?.text ?? (p.type === "social_post" ? p.text : p.body));
-  const [subject, setSubject] = useState(restore?.subject ?? (p.type === "supplier_email" ? p.subject : ""));
-  const [note, setNote] = useState("");
+  const [text, setText] = useState(restore?.edits?.text ?? (p.type === "social_post" ? p.text : p.body));
+  const [subject, setSubject] = useState(restore?.edits?.subject ?? (p.type === "supplier_email" ? p.subject : ""));
+  // A part-done approval keeps the note it was started with.
+  const [note, setNote] = useState(restore?.note ?? (item.status === "pending" ? item.reviewerNote ?? "" : ""));
   // A draft is read first; its fields open only when someone chooses to change it.
-  const [changing, setChanging] = useState(!!restore);
+  const [changing, setChanging] = useState(!!restore?.edits);
   const pending = item.status === "pending";
-  const [social, setSocial] = useState(p.type === "social_post" ? restore?.social ?? socialEdits(p) : undefined);
+  const [social, setSocial] = useState(p.type === "social_post" ? restore?.edits?.social ?? socialEdits(p) : undefined);
   const patch = p.type === "social_post" ? socialPatch(p, social!) : { body: text, subject };
   const dirty = p.type === "social_post" ? Object.keys(patch).length > 0 : text !== p.body || subject !== p.subject;
   // Once approving has begun (a step is done and a later one failed), the draft is fixed and can only be finished.
@@ -243,7 +244,7 @@ function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDe
         </div>
         <p className="small muted">{started ? "You get a few seconds to undo after approving." : "You get a few seconds to undo after approving or sending back."}</p>
       </>}
-      {shown.reviewerNote && <p className="small"><b>Reviewer note:</b> {shown.reviewerNote}</p>}
+      {!pending && shown.reviewerNote && <p className="small"><b>Reviewer note:</b> {shown.reviewerNote}</p>}
       {!!shown.outcome?.length && <div className="outcome"><b>What happened</b><ul>{shown.outcome.map((o) => <li key={o.ref}><b>{o.system}:</b> {o.label}</li>)}</ul></div>}
       {p.type === "social_post" && !pending && <SocialFootnote item={shown} edits={social!} />}
     </section>

@@ -158,6 +158,8 @@ export class AgentService {
     if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
     if (this.approving.has(id)) throw new HttpError(409, "This is already being approved. Refresh in a moment to see the result.");
     const state = this.store.state;
+    // The note given when approving began is kept if the approval is finished later without one.
+    note ||= a.reviewerNote;
     this.approving.add(id);
     try {
       await this.carryOut(a, by, note, state);
@@ -204,6 +206,7 @@ export class AgentService {
       const at = replaces ? outcome.findIndex((o) => o.step === replaces) : -1;
       const done = { system, ref, label, step, at: new Date().toISOString() };
       if (at >= 0) outcome[at] = done; else outcome.push(done);
+      a.reviewerNote = note;
       this.store.save();
     };
     if (a.payload.type === "social_post") {

@@ -294,16 +294,16 @@ describe("staff switching", () => {
     const third = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
     const save = vi.spyOn(store, "save").mockImplementationOnce(() => { throw new Error("disk full"); });
     // The first step (the draft in the mailbox) is done with the edits, so they stay even though the approval stopped there.
-    await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Priya Raman", payload: { subject: "What was sent" } }).expect(502);
+    await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Priya Raman", note: "Agreed with Mark", payload: { subject: "What was sent" } }).expect(502);
     save.mockRestore();
-    expect(third).toMatchObject({ status: "pending", edited: true, payload: { subject: "What was sent" }, outcome: [{ step: "draft" }] });
+    expect(third).toMatchObject({ status: "pending", edited: true, reviewerNote: "Agreed with Mark", payload: { subject: "What was sent" }, outcome: [{ step: "draft" }] });
     await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Mark Jensen", payload: { subject: "Typed after it was saved" } }).expect(409);
     await request(app).post(`/api/approvals/${third.id}/reject`).send({ user: "Mark Jensen" }).expect(409);
     expect(third).toMatchObject({ status: "pending", payload: { subject: "What was sent" } });
     await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Priya Raman" }).expect(200);
     expect(store.state.systems.m365.messages.filter((m) => m.subject === "What was sent")).toHaveLength(1);
     await request(app).post(`/api/approvals/${third.id}/reject`).send({ user: "Mark Jensen", payload: { subject: "Typed after it was sent" } }).expect(409);
-    expect(third).toMatchObject({ status: "approved", decidedBy: "Priya Raman", payload: { subject: "What was sent" } });
+    expect(third).toMatchObject({ status: "approved", decidedBy: "Priya Raman", reviewerNote: "Agreed with Mark", payload: { subject: "What was sent" } });
     // A decision that fails before any step leaves no trace of having started.
     expect(post.outcome).toBeUndefined();
   });
