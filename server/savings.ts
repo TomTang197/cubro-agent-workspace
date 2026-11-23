@@ -33,6 +33,8 @@ export function savingFor(a: Pick<ApprovalItem, "id" | "agent" | "title" | "stat
   const manualMinutes = approved ? a.estimate.manualMinutes : 0;
   const agentAssistedMinutes = a.estimate.reviewMinutes + (a.edited ? EDIT_MINUTES : 0);
   const minutesSaved = manualMinutes - agentAssistedMinutes;
+  // Settings are free-form input; the ledger and its export only ever hold a number.
+  hourlyRate = Number.isFinite(Number(hourlyRate)) ? Number(hourlyRate) : 0;
   return {
     date: nzDate(a.decidedAt ?? new Date()), agent: a.agent, approvalId: a.id, description: a.title,
     outcome: approved ? "approved" : "rejected", edited: a.edited, reviewer: a.decidedBy,
@@ -79,6 +81,6 @@ export const decisionLabel = (e: SavingsEntry) => (e.outcome === "rejected" ? "R
 /** Excel opens this as a table: UTF-8 with a byte-order mark, and text that looks like a formula is escaped. */
 export function savingsCsv(entries: SavingsEntry[]) {
   const text = (v: string) => `"${(/^[=+\-@]/.test(v) ? `'${v}` : v).replace(/"/g, '""')}"`;
-  const rows = entries.map((e) => [e.date, text(AGENT_NAMES[e.agent]), text(TEAMS[e.agent]), text(e.description), text(decisionLabel(e)), text(e.reviewer ?? ""), e.manualMinutes, e.agentAssistedMinutes, e.minutesSaved, e.hourlyRate, e.dollarsSaved.toFixed(2)].join(","));
+  const rows = entries.map((e) => [e.date, text(AGENT_NAMES[e.agent]), text(TEAMS[e.agent]), text(e.description), text(decisionLabel(e)), text(e.reviewer ?? ""), ...[e.manualMinutes, e.agentAssistedMinutes, e.minutesSaved, e.hourlyRate].map(Number), Number(e.dollarsSaved).toFixed(2)].join(","));
   return "\uFEFF" + ["Date,Agent,Team,Work,Decision,Reviewed by,By hand (min),With agent (min),Saved (min),Hourly cost (NZD),Saved (NZD)", ...rows].join("\r\n") + "\r\n";
 }
