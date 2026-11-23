@@ -101,6 +101,11 @@ describe("api", () => {
     const handledAt = (at: string) => handledSupplierKeys([sent, ...others], new Date(at)).has(key);
     expect(handledAt("2026-11-24T18:00:00Z")).toBe(true); // 7am Wednesday
     expect(handledAt("2026-11-25T18:00:00Z")).toBe(false); // 7am Thursday: three days on
+    // Finished two days after the email went (the follow-up task failed first): still chased from Thursday, when that task falls due.
+    sent.outcome = [{ system: "Microsoft 365", ref: "AAMkDraft-1", label: "Email sent", step: "email", at: sent.decidedAt }];
+    sent.decidedAt = "2026-11-24T20:00:00Z";
+    expect(handledAt("2026-11-24T18:00:00Z")).toBe(true);
+    expect(handledAt("2026-11-25T18:00:00Z")).toBe(false);
   });
 
   it("seeded history never emails the same supplier about the same thing twice within the follow-up window", () => {

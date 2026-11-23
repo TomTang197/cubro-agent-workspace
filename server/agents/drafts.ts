@@ -31,7 +31,9 @@ export function handledSupplierKeys(approvals: ApprovalItem[], today: Date): Set
   for (const a of approvals) {
     if (a.payload.type !== "supplier_email") continue;
     const window = a.payload.reason === "low_stock" ? LOW_STOCK_REPEAT_DAYS : FOLLOW_UP_DAYS;
-    if (a.status === "pending" || (a.decidedAt && isoDate(nzDay(new Date(a.decidedAt))) > since(window))) keys.add(supplierKey(a.payload));
+    // An approval finished later than its email went counts from the email, the same day its follow-up task is dated from.
+    const from = a.outcome?.find((o) => o.step === "email")?.at ?? a.decidedAt;
+    if (a.status === "pending" || (from && isoDate(nzDay(new Date(from))) > since(window))) keys.add(supplierKey(a.payload));
   }
   return keys;
 }
