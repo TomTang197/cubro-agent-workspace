@@ -113,7 +113,7 @@ describe("agent runs with Gemini", () => {
   });
 
   it("keeps the template draft and says so when Gemini fails", async () => {
-    const template = createApp(new Store({ today }), { llm: templateProvider, env: {} });
+    const template = createApp(new Store({ today }), { llm: templateProvider, env: {}, now: () => today });
     const expected = await request(template).post("/api/agents/supplier-outreach/run").send({}).expect(200);
     mockFetch(() => reply({ error: { code: "rate_limit_exceeded", message: "Quota exceeded" } }, 429));
     const { res, store } = await run("supplier-outreach");
