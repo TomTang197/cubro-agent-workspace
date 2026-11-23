@@ -194,3 +194,25 @@ describe("an event named like a campaign", () => {
     expect(titles({ ...campaign, StartDate: day, EndDate: day }, day)).toEqual(["Event: Summer roadshow"]);
   });
 });
+
+describe("retiming a post", () => {
+  it("keeps the planner's own dates inside the limits it sets", () => {
+    for (const seed of seeds) for (const d of plan(seed).drafts) {
+      const p = post(d), day = nzDay(p.scheduledFor);
+      expect(!p.notAfter || day <= p.notAfter).toBe(true);
+      expect(!p.notBefore || day >= p.notBefore).toBe(true);
+    }
+  });
+
+  it("refuses a date after what the post promotes, or before its product launches", async () => {
+    const { app, store } = setup();
+    const item = store.state.approvals.find((a) => a.status === "pending" && a.kind === "social_post")!;
+    Object.assign(post(item), { notBefore: "2026-11-28", notAfter: "2026-12-01" });
+    const move = (day: string) => request(app).patch(`/api/approvals/${item.id}`).send({ payload: { scheduledFor: nzTime(day, 9, 30).toISOString() } });
+    expect((await move("2026-12-02").expect(400)).body.error).toMatch(/will be over by then\. Pick Tue, 1 Dec or earlier/);
+    expect((await move("2026-11-27").expect(400)).body.error).toMatch(/not available until Sat, 28 Nov/);
+    await move("2026-12-01").expect(200);
+    await request(app).patch(`/api/approvals/${item.id}`).send({ payload: { notAfter: "2027-01-01" } });
+    expect(post(item).notAfter).toBe("2026-12-01");
+  });
+});

@@ -39,3 +39,11 @@ export const longDay = (day: string) => fmt(day, { weekday: "long", day: "numeri
 export const shortDay = (day: string) => fmt(day, { weekday: "short", day: "numeric", month: "short" });
 /** "9:30 am" */
 export const nzClock = (at: Date | string) => new Date(at).toLocaleTimeString("en-NZ", { hour: "numeric", minute: "2-digit", timeZone: NZ });
+
+/** Why a post cannot go out at this time, given the days it makes sense on; undefined when it can. */
+export function dateProblem(limits: { notBefore?: string; notAfter?: string }, at: string) {
+  const day = nzDay(at);
+  if (limits.notAfter && day > limits.notAfter) return `What this post promotes will be over by then. Pick ${shortDay(limits.notAfter)} or earlier, or reject the draft.`;
+  if (limits.notBefore && day < limits.notBefore) return `The product in this post is not available until ${shortDay(limits.notBefore)}. Pick that day or later.`;
+  return undefined;
+}

@@ -3,7 +3,7 @@ import { addDays, isoDate } from "../data/rng.js";
 import type { LlmProvider } from "../llm/index.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
 import { buildSupplierDrafts, type Draft } from "./drafts.js";
-import { nzClock, nzDay, shortDay } from "./nzTime.js";
+import { dateProblem, nzClock, nzDay, shortDay } from "./nzTime.js";
 import { EVENT_LEAD_DAYS, buildSocialDrafts, socialBrief, takenSocialTopics } from "./social.js";
 
 export const AGENTS: Record<AgentId, { name: string; description: string; team: string; reads: string[]; writes: string[] }> = {
@@ -160,6 +160,8 @@ export class AgentService {
       const at = new Date(patch.scheduledFor);
       if (typeof patch.scheduledFor !== "string" || Number.isNaN(at.getTime())) throw new HttpError(400, "That date is not valid.");
       if (at < this.now()) throw new HttpError(400, "Pick a date and time in the future.");
+      const problem = a.payload.type === "social_post" ? dateProblem(a.payload, at.toISOString()) : undefined;
+      if (problem) throw new HttpError(400, problem);
       patch.scheduledFor = at.toISOString();
     }
     if (patch.hashtags !== undefined) {

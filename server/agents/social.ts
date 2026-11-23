@@ -22,6 +22,8 @@ interface Idea {
   why: string; sources: Draft["sources"]; priority: Draft["priority"];
   /** The NZ days this post makes sense on, and why. */
   earliest: string; latest: string; timing: string; noImage?: string;
+  /** Hard limits a reviewer's own date must keep to. */
+  notBefore?: string; notAfter?: string;
 }
 
 const STORY_LOOKBACK_DAYS = 90;
@@ -125,7 +127,7 @@ export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date
       why: `Outlook calendar shows "${e.subject}" on ${shortDay(day)}, organised by ${e.organizer}${c ? `; it matches the Salesforce campaign of the same name` : ""}.`,
       timing: `Scheduled ahead of the ${webinar ? "webinar" : "event"} so people can plan to ${webinar ? "join" : "come"}.`,
       noImage: `No image picked: there is no ${webinar ? "webinar" : "event"} artwork on SharePoint, so add one before publishing.`,
-      earliest, latest,
+      earliest, latest, notAfter: shiftDay(day, -1),
       sources: [{ system: "Microsoft 365", label: `Calendar: ${e.subject}`, ref: e.id }, ...(c ? [{ system: "Salesforce", label: `Campaign: ${c.Name}`, ref: c.Id }] : [])],
     });
   }
@@ -167,7 +169,7 @@ export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date
       skus: p ? [p.item] : [],
       why: `Salesforce campaign "${c.Name}" ${oneDay ? `is on ${shortDay(c.StartDate)}` : `runs ${shortDay(c.StartDate)} to ${shortDay(c.EndDate)}`}${p ? `; featured product ${p.item} has ${p.onHand} units on hand in Infor LN` : ""}.`,
       timing: oneDay ? "Scheduled before the day so people can plan for it. Salesforce has no start time or sign-up link for it, so add those before publishing." : "Scheduled inside the campaign dates.",
-      earliest, latest,
+      earliest, latest, notAfter: oneDay ? shiftDay(c.StartDate, -1) : c.EndDate, notBefore: p?.isNew ? p.launchDate : undefined,
       sources: [{ system: "Salesforce", label: `Campaign: ${c.Name}`, ref: c.Id }, ...(p ? [{ system: "Infor LN", label: `Item ${p.item}`, ref: p.item }] : [])],
     });
   }
@@ -187,7 +189,7 @@ export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date
       tags: [...(HASHTAGS[p.itemGroup] ?? []), "#NewProduct", "#Cubro"], skus: [p.item],
       why: `Infor LN flags ${p.item} as a new item${p.launchDate ? ` ${upcomingLaunch ? "launching" : "that launched"} ${shortDay(p.launchDate)}` : ""}, with ${p.onHand} units on hand.`,
       timing: upcomingLaunch ? "Scheduled for launch day, not before." : "Already launched, so it can go out any day.",
-      earliest: upcomingLaunch ? p.launchDate! : first, latest: upcomingLaunch ? sooner(last, shiftDay(p.launchDate!, 2)) : last,
+      earliest: upcomingLaunch ? p.launchDate! : first, latest: upcomingLaunch ? sooner(last, shiftDay(p.launchDate!, 2)) : last, notBefore: p.launchDate,
       sources: [{ system: "Infor LN", label: `New item ${p.item}`, ref: p.item }],
     });
   }
@@ -252,7 +254,7 @@ export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date
     const noImage = asset ? undefined : idea.noImage ?? "No image picked: there is no photo of this product on SharePoint, so add one before publishing.";
     const payload: SocialPostPayload = {
       type: "social_post", channel, scheduledFor: when.toISOString(), text: idea.text(channel), hashtags: [...new Set(idea.tags)].slice(0, 4),
-      assetName: asset?.name, assetUrl: asset?.webUrl, campaign: idea.campaign, productSkus: idea.skus, topic: idea.topic,
+      assetName: asset?.name, assetUrl: asset?.webUrl, campaign: idea.campaign, productSkus: idea.skus, topic: idea.topic, notBefore: idea.notBefore, notAfter: idea.notAfter,
     };
     return {
       agent: "social-media", kind: "social_post", title: `${channel}: ${idea.title}`, priority: idea.priority,

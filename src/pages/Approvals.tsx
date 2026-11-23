@@ -56,7 +56,7 @@ function Detail({ item, onDone, nextId }: { item: ApprovalItem; onDone: (next?: 
   const [social, setSocial] = useState(p.type === "social_post" ? socialEdits(p) : undefined);
   const patch = p.type === "social_post" ? socialPatch(p, social!) : { body: text, subject };
   const dirty = p.type === "social_post" ? Object.keys(patch).length > 0 : text !== p.body || subject !== p.subject;
-  const problem = pending && p.type === "social_post" ? socialProblem(social!) : undefined;
+  const problem = pending && p.type === "social_post" ? socialProblem(p, social!) : undefined;
 
   async function act(kind: "approve" | "reject") {
     setBusy(true); setErr(undefined);

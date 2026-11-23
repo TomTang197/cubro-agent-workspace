@@ -1,4 +1,4 @@
-import { fromNzInput, nzClock, nzDay, shortDay, toNzInput } from "../../server/agents/nzTime";
+import { dateProblem, fromNzInput, nzClock, nzDay, shortDay, toNzInput } from "../../server/agents/nzTime";
 import { when, type ApprovalItem } from "../api";
 
 type Item = ApprovalItem;
@@ -18,11 +18,11 @@ export function socialPatch(p: Post, e: SocialEdits) {
 }
 
 /** Why a post cannot be approved as it stands, if anything. */
-export function socialProblem(e: SocialEdits) {
+export function socialProblem(p: Post, e: SocialEdits) {
   if (!e.text.trim()) return "The post has no text. Write something, or reject the draft.";
   if (!e.scheduledFor) return "Pick a date and time for the post.";
   if (new Date(fromNzInput(e.scheduledFor)) < new Date()) return "The planned date has passed. Pick a new date and time, or reject the draft.";
-  return undefined;
+  return dateProblem(p, fromNzInput(e.scheduledFor));
 }
 
 export function SocialMeta({ p }: { p: Post }) {
