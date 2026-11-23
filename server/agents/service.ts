@@ -3,7 +3,7 @@ import { addDays, isoDate } from "../data/rng.js";
 import type { LlmProvider } from "../llm/index.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
 import { buildSupplierDrafts, type Draft } from "./drafts.js";
-import { nzDay, shortDay } from "./nzTime.js";
+import { nzClock, nzDay, shortDay } from "./nzTime.js";
 import { buildSocialDrafts, socialBrief, takenSocialTopics } from "./social.js";
 
 export const AGENTS: Record<AgentId, { name: string; description: string; team: string; reads: string[]; writes: string[] }> = {
@@ -115,14 +115,15 @@ export class AgentService {
     if (a.payload.type === "social_post") {
       const p = a.payload;
       const on = nzDay(p.scheduledFor);
+      const at = `${shortDay(on)} at ${nzClock(p.scheduledFor)}`;
       if (new Date(p.scheduledFor) < this.now()) throw new HttpError(409, `This post was planned for ${shortDay(on)}, which has passed. Pick a new date or reject it.`);
       const task = await this.connectors.clickup.createTask({
         name: `Publish ${p.channel} post — ${new Date(p.scheduledFor).toLocaleDateString("en-NZ", { timeZone: "Pacific/Auckland" })}`,
-        description: `${p.text}\n\n${p.hashtags.join(" ")}\n\nImage: ${p.assetName ? `${p.assetName} ${p.assetUrl ?? ""}` : "none picked, add one before publishing"}\nApproved by ${by}${note ? `: ${note}` : ""}`,
+        description: `Publish on ${p.channel}: ${at} (NZ time)\n\n${p.text}\n\n${p.hashtags.join(" ")}\n\nImage: ${p.assetName ? `${p.assetName} ${p.assetUrl ?? ""}` : "none picked, add one before publishing"}\nApproved by ${by}${note ? `: ${note}` : ""}`,
         list: "Marketing", assignees: [by], due_date: on, tags: ["social", p.channel.toLowerCase(), "agent-drafted"],
       });
-      outcome.push({ system: "ClickUp", ref: task.url, label: `Task ${task.id} added to the Marketing list, due ${shortDay(on)}. The team publishes the post from there.` });
-      const post = await this.connectors.m365.postTeamsMessage("Marketing", `✅ ${p.channel} post approved by ${by} for ${shortDay(on)}: ${a.title}`);
+      outcome.push({ system: "ClickUp", ref: task.url, label: `Task ${task.id} added to the Marketing list, to publish ${at}. The team publishes the post from there.` });
+      const post = await this.connectors.m365.postTeamsMessage("Marketing", `✅ ${p.channel} post approved by ${by} to publish ${at}: ${a.title}`);
       outcome.push({ system: "Microsoft 365", ref: post.id, label: "Team told in the Marketing channel on Teams" });
     } else {
       const p = a.payload;

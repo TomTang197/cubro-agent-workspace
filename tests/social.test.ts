@@ -114,7 +114,8 @@ describe("social media planner in the app", () => {
     expect(edited.body.payload.hashtags).toEqual(["#Cubro", "#AgedCare"]);
     const res = await request(app).post(`/api/approvals/${item.id}/approve`).send({ user: "Aroha Ngata" }).expect(200);
     expect(store.state.systems.clickup.tasks[0].due_date).toBe("2026-12-01");
-    expect(store.state.systems.m365.teamsPosts[0].text).toContain("1 Dec");
+    expect(store.state.systems.clickup.tasks[0].description).toContain("Tue, 1 Dec at 8:00 am (NZ time)");
+    expect(store.state.systems.m365.teamsPosts[0].text).toContain("Tue, 1 Dec at 8:00 am");
     expect(res.body.outcome[0].label).toMatch(/team publishes/);
   });
 
