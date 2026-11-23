@@ -68,7 +68,9 @@ function Detail({ item, onDone, onDirty, nextId }: { item: ApprovalItem; onDone:
   const [social, setSocial] = useState(p.type === "social_post" ? socialEdits(p) : undefined);
   const patch = p.type === "social_post" ? socialPatch(p, social!) : { body: text, subject };
   const dirty = p.type === "social_post" ? Object.keys(patch).length > 0 : text !== p.body || subject !== p.subject;
-  const problem = pending && p.type === "social_post" ? socialProblem(p, social!) : undefined;
+  // Once approving has begun (a step is done and a later one failed), the draft is fixed and can only be finished.
+  const started = pending && !!item.outcome?.length;
+  const problem = pending && !started && p.type === "social_post" ? socialProblem(p, social!) : undefined;
   useEffect(() => { onDirty(pending && dirty && !result); return () => onDirty(false); }, [pending, dirty, result]);
 
   // A draft approved days after it was written would ask the supplier to reply by a date that has gone.
@@ -108,21 +110,22 @@ function Detail({ item, onDone, onDirty, nextId }: { item: ApprovalItem; onDone:
           {p.purchaseOrder ? <div><span>Purchase order</span><b>{p.purchaseOrder}</b></div> : <div><span>Items</span><b>{p.items.join(", ")}</b></div>}
         </div>
       )}
-      {p.type === "supplier_email" && <label className="field"><span>Subject</span><input value={subject} disabled={!pending} onChange={(e) => setSubject(e.target.value)} /></label>}
-      {p.type === "social_post" ? <SocialFields p={p} edits={social!} onChange={setSocial} pending={pending && !result} /> : (
+      {p.type === "supplier_email" && <label className="field"><span>Subject</span><input value={subject} disabled={!pending || started} onChange={(e) => setSubject(e.target.value)} /></label>}
+      {p.type === "social_post" ? <SocialFields p={p} edits={social!} onChange={setSocial} pending={pending && !result && !started} /> : (
         <label className="field"><span>Email {pending && <em className="muted">— edit before approving if needed</em>}</span>
-          <textarea rows={14} value={text} disabled={!pending} onChange={(e) => setText(e.target.value)} /></label>
+          <textarea rows={14} value={text} disabled={!pending || started} onChange={(e) => setText(e.target.value)} /></label>
       )}
       {lateReplyBy && !result && <div className="error" role="alert">This email asks for a reply by {lateReplyBy}, which has passed. Change the date before you send it.</div>}
       {pending && !result && signOff && signedBy && signedBy !== me && <p className="small sign-note">This email is signed <b>{signedBy}</b>, the name the agent uses for every supplier email (set in Settings), and you are approving as <b>{me}</b>. <button type="button" className="link" onClick={signAsMe}>Sign it as {me} instead</button></p>}
       <p className="small muted">Doing this by hand: ~{item.estimate.manualMinutes} min. Reviewing the draft: ~{item.estimate.reviewMinutes} min{item.edited ? " (+4 min for edits)" : ""}.</p>
       {pending && !result && <>
         <label className="field"><span>Note (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why you rejected it, or anything the team should know" /></label>
+        {started && <p className="small">Part of this approval is already done (see What happened below). Approve again to finish it; nothing is repeated.</p>}
         {err && <div className="error">{err}</div>}
         {problem && <div className="error">{problem}</div>}
         <div className="row gap">
           <button className="btn primary" disabled={busy || !!problem} onClick={() => act("approve")}>{p.type === "social_post" ? "Approve post" : "Approve & send"}</button>
-          <button className="btn" disabled={busy} onClick={() => act("reject")}>Reject</button>
+          <button className="btn" disabled={busy || started} onClick={() => act("reject")}>Reject</button>
           {dirty && <span className="small muted">Your edits will be {p.type === "supplier_email" ? "sent" : "saved"} if you approve. <button type="button" className="link" onClick={() => { if (p.type === "social_post") setSocial(socialEdits(p)); else { setText(p.body); setSubject(p.subject); } }}>Undo edits</button></span>}
         </div>
       </>}
