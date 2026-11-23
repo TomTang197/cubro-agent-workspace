@@ -11,7 +11,7 @@ export default function Overview() {
   const week = (w: string) => (w === t.currentWeek ? "This week" : shortDay(w));
   return (
     <>
-      <div className="page-head"><div><h1>Overview</h1><p className="muted">Agents draft the work from Microsoft 365, Salesforce, ClickUp and Infor LN. Staff approve it. Every approval is logged with the time it saved.</p></div></div>
+      <div className="page-head"><div><h1>Overview</h1><p className="muted">Agents are AI assistants that draft routine work from Microsoft 365, Salesforce, ClickUp and Infor LN. Nothing goes out until someone at Cubro approves it, and every approval is logged with the time it saved.</p></div></div>
       <div className="kpis">
         <Link to="/approvals" className="kpi"><span>Waiting for approval</span><strong>{t.pending}</strong><small>{t.highPriority} high priority</small></Link>
         <Link to="/savings?period=30" className="kpi"><span>Time saved, last 30 days</span><strong>{hm(t.last30.minutesSaved)}</strong><small>{hm(t.all.minutesSaved)} since {day(t.pilotStart)}</small></Link>
@@ -47,7 +47,7 @@ export default function Overview() {
         {data.agents.map((a) => (
           <section className="card agent-card" key={a.id}>
             <div className="row between"><h3>{a.name}</h3><span className={`pill ${a.enabled ? "ok" : ""}`}>{a.enabled ? "Active" : "Paused"}</span></div>
-            <p className="muted small">{a.team} · owner {a.owner} · runs {a.schedule}</p>
+            <p className="muted small">{a.team} · owner {a.owner} · {a.enabled ? `planned for ${a.schedule}` : "paused"}</p>
             <p>{a.description}</p>
             <div className="stats">
               <div><strong>{a.pending}</strong><span>pending</span></div>
@@ -60,7 +60,7 @@ export default function Overview() {
           </section>
         ))}
       </div>
-      <p className="muted small">Drafting model: {data.provider}</p>
+      <p className="muted small">{data.provider.startsWith("Built-in") ? "During the pilot, drafts are written from built-in templates rather than an AI model." : `Drafts are written by ${data.provider}.`}</p>
     </>
   );
 }

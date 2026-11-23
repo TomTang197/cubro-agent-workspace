@@ -154,7 +154,9 @@ describe("export", () => {
 
   it("never lets a hourly cost that is not a number into the ledger or the export", async () => {
     const { app, store } = setup();
-    await request(app).put("/api/settings").send({ hourlyRates: { "supplier-outreach": '=HYPERLINK("x")' } }).expect(200);
+    // Settings refuses it, so put it straight into the stored settings (an older data file could hold one).
+    await request(app).put("/api/settings").send({ hourlyRates: { "supplier-outreach": '=HYPERLINK("x")' } }).expect(400);
+    store.state.settings.hourlyRates["supplier-outreach"] = '=HYPERLINK("x")' as unknown as number;
     const item = store.state.approvals.find((a) => a.status === "pending" && a.kind === "supplier_email")!;
     await request(app).post(`/api/approvals/${item.id}/approve`).send({}).expect(200);
     expect(store.state.savings[0]).toMatchObject({ hourlyRate: 0, dollarsSaved: 0, minutesSaved: 19 });
