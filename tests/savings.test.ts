@@ -51,6 +51,8 @@ describe("New Zealand dates", () => {
 describe("savings ledger", () => {
   it("has one line for every draft that was approved or rejected", () => {
     const { store } = setup();
+    const times = store.state.savings.map((e) => e.decidedAt);
+    expect(times).toEqual([...times].sort().reverse());
     const decided = store.state.approvals.filter((a) => a.status !== "pending");
     expect(store.state.savings.map((e) => e.approvalId).sort()).toEqual(decided.map((a) => a.id).sort());
     for (const e of store.state.savings) {
@@ -136,5 +138,14 @@ describe("export", () => {
     expect(cols.reduce((n, c) => n + cents(c[4]), 0)).toBe(cents(total.dollarsSaved));
     expect(csv).toContain("Rejected");
     expect(savingsCsv([{ ...entries[0], description: '=HYPERLINK("x")' }])).toContain(`"'=HYPERLINK(""x"")"`);
+  });
+
+  it("never lets a hourly cost that is not a number into the ledger or the export", async () => {
+    const { app, store } = setup();
+    await request(app).put("/api/settings").send({ hourlyRates: { "supplier-outreach": '=HYPERLINK("x")' } }).expect(200);
+    const item = store.state.approvals.find((a) => a.status === "pending" && a.kind === "supplier_email")!;
+    await request(app).post(`/api/approvals/${item.id}/approve`).send({}).expect(200);
+    expect(store.state.savings[0]).toMatchObject({ hourlyRate: 0, dollarsSaved: 0, minutesSaved: 19 });
+    expect(savingsCsv([{ ...store.state.savings[0], hourlyRate: "=1+1" as unknown as number }])).not.toContain("=1+1");
   });
 });
