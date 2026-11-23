@@ -38,6 +38,10 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
       return next();
     }
     if (anyLive && !store.state.heldLive) { store.state.heldLive = true; store.save(); }
+    // The password is only asked for over an encrypted connection (or on the server itself), so it is never sent in the clear.
+    const forwarded = req.header("x-forwarded-proto")?.split(",")[0].trim().toLowerCase();
+    const onServer = ["127.0.0.1", "::1", "::ffff:127.0.0.1"].includes(req.socket.remoteAddress ?? "");
+    if (forwarded ? forwarded !== "https" : !req.secure && !onServer) return refuse(403, "Open this workspace over https. The sign-in password is not accepted on an unencrypted connection.");
     const [scheme, value] = (req.header("authorization") ?? "").split(" ");
     const given = scheme?.toLowerCase() === "basic" ? Buffer.from(value ?? "", "base64").toString("utf8") : "";
     if (crypto.timingSafeEqual(digest(given.slice(given.indexOf(":") + 1)), digest(password))) return next();

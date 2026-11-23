@@ -24,7 +24,7 @@ All four systems start on deterministic sample data (`server/data/seed.ts`, comp
 Going live, one system at a time:
 
 1. Set the system's settings as environment variables on the server. The Connected systems page lists each one in plain words with what it is for and whether it is set (`server/connectors/config.ts` is the source); values never reach the browser.
-2. Set `WORKSPACE_PASSWORD`. The browser then asks every visitor for it (any user name), and a system switched to live refuses to connect until it is set, so live records and approvals are never open to anyone who has the address. It is one shared password: who approved something is still the name picked in the workspace, so put the app behind your single sign-on if approvals need to be tied to a person.
+2. Set `WORKSPACE_PASSWORD`. The browser then asks every visitor for it (any user name), and a system switched to live refuses to connect until it is set, so live records and approvals are never open to anyone who has the address. It is one shared password: who approved something is still the name picked in the workspace, so put the app behind your single sign-on if approvals need to be tied to a person. The password is only accepted over https (or from the server itself): put the app behind a proxy that ends TLS and sends `X-Forwarded-Proto: https`. If the password is later removed, a workspace that has had a real system connected stays closed until it is set again.
 3. Set its `CONNECTOR_…=live` switch and restart.
 3. Open Connected systems and press **Test connection**. The card shows the record counts read from the real system, or the reason it could not connect. A system that fails does not affect the other three.
 

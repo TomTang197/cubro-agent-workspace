@@ -104,6 +104,16 @@ describe("connected systems API", () => {
     expect(ok.body.length).toBeGreaterThan(0);
   });
 
+  it("does not ask for the password over an unencrypted connection", async () => {
+    const a = createApp(new Store({ today }), { llm: templateProvider, env: { WORKSPACE_PASSWORD: "kōwhai-42" }, fetch: noNetwork });
+    const plain = await request(a).get("/api/systems").set("x-forwarded-proto", "http").set("authorization", signIn).expect(403);
+    expect(plain.headers["www-authenticate"]).toBeUndefined();
+    expect(plain.body.error).toContain("https");
+    expect((await request(a).get("/").set("x-forwarded-proto", "http").expect(403)).text).toContain("https");
+    await request(a).get("/api/systems").set("x-forwarded-proto", "https").expect(401);
+    await request(a).get("/api/systems").set("x-forwarded-proto", "https").set("authorization", signIn).expect(200);
+  });
+
   it("does not connect a real system while the workspace has no password", async () => {
     const { fetchImpl, calls } = fakeFetch([token]);
     const a = app({ CONNECTOR_SALESFORCE: "live", ...SF }, fetchImpl, null);
