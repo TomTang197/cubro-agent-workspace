@@ -144,9 +144,14 @@ describe("supplier outreach drafts", () => {
     expect(overdue.body).toContain("A reply by Wednesday 25 November");
   });
 
-  it("asks for a reply on a working day", () => {
-    const { drafts } = planSupplierDrafts(inforln, all, new Date("2026-11-26T00:00:00Z"));
-    expect(emails(drafts)[0].body).toContain("A reply by Monday 30 November");
+  it("asks for a reply two working days out, counted from the day in New Zealand", () => {
+    const replyBy = (at: string) => emails(planSupplierDrafts(inforln, all, new Date(at)).drafts)[0];
+    expect(replyBy("2026-11-26T00:00:00Z").body).toContain("A reply by Monday 30 November"); // Thursday
+    expect(replyBy("2026-11-27T00:00:00Z").body).toContain("A reply by Tuesday 1 December"); // Friday
+    // 7am on Friday in Auckland is still Thursday evening in UTC.
+    const morning = replyBy("2026-11-26T18:00:00Z");
+    expect(morning.body).toContain("A reply by Tuesday 1 December");
+    expect(morning.replyBy).toBe("2026-12-01");
   });
 
   it("keeps Cubro's stock levels out of the email and in the reviewer's notes", () => {

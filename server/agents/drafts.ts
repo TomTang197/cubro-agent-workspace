@@ -111,6 +111,7 @@ type SupplierReply = { subject: string; receivedDateTime: string };
 /** Days the agent leaves a supplier alone after an email is sent or a draft is rejected; also when the ClickUp follow-up falls due. */
 export const FOLLOW_UP_DAYS = 3;
 /** A supplier email about an order within this many days means the chase is not needed yet. */
+export const REPLY_WORKING_DAYS = 2;
 export const RECENT_REPLY_DAYS = 7;
 
 /** Stock enquiries to the same supplier are spaced further apart than order chases. */
@@ -133,6 +134,14 @@ export const nzDate = (iso: string, weekday = false) => {
   const d = new Date(iso.slice(0, 10) + "T00:00:00Z"), fmt = (o: Intl.DateTimeFormatOptions) => d.toLocaleDateString("en-NZ", { ...o, timeZone: "UTC" });
   return weekday ? `${fmt({ weekday: "long" })} ${d.getUTCDate()} ${fmt({ month: "long" })}` : `${d.getUTCDate()} ${fmt({ month: "long" })} ${d.getUTCFullYear()}`;
 };
+/** The calendar day in Auckland as a UTC-midnight Date: a 7am run in New Zealand is still "yesterday" in UTC. */
+export const nzDay = (d: Date) => new Date(d.toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" }) + "T00:00:00Z");
+/** The date n working days (Monday to Friday) after `from`. */
+export const addWorkingDays = (from: Date, n: number) => {
+  let d = from;
+  while (n > 0) { d = addDays(d, 1); if (![0, 6].includes(d.getUTCDay())) n--; }
+  return d;
+};
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 export interface SupplierPlanOptions {
@@ -145,6 +154,7 @@ export interface SupplierPlan { drafts: Draft[]; heldBack: number; alreadyHandle
 
 export function planSupplierDrafts(d: SupplierData, settings: Settings, today: Date, { exclude = new Set(), replies = new Map() }: SupplierPlanOptions = {}): SupplierPlan {
   const { overdueGraceDays, lowStockCoverageWeeks, maxEmailsPerRun, sender } = settings.supplier;
+  today = nzDay(today);
   const t = isoDate(today);
   const grace = isoDate(addDays(today, -overdueGraceDays));
   const recentReply = isoDate(addDays(today, -RECENT_REPLY_DAYS));
@@ -156,10 +166,8 @@ export function planSupplierDrafts(d: SupplierData, settings: Settings, today: D
   const sign = `Kind regards,\n${sender}\nPurchasing Officer, Cubro Ltd\nTauriko, Tauranga, New Zealand`;
   const linesText = (po: SupplierData["purchaseOrders"][number]) => po.lines.filter((l) => l.received < l.quantity).map((l) => `  • ${l.item} ${itemName(l.item)} — ${l.quantity - l.received} of ${l.quantity} outstanding`).join("\n");
   const daysSince = (iso: string) => Math.round((new Date(isoDate(today)).getTime() - new Date(iso.slice(0, 10)).getTime()) / 86_400_000);
-  // Ask for a reply two working days out, never on a weekend.
-  let replyBy = addDays(today, 2);
-  while ([0, 6].includes(replyBy.getUTCDay())) replyBy = addDays(replyBy, 1);
-  const replyByText = nzDate(isoDate(replyBy), true);
+  const replyBy = isoDate(addWorkingDays(today, REPLY_WORKING_DAYS));
+  const replyByText = nzDate(replyBy, true);
 
   for (const po of d.purchaseOrders) {
     if (!openStatuses.includes(po.status) || po.orderDate > t) continue;
@@ -191,7 +199,7 @@ export function planSupplierDrafts(d: SupplierData, settings: Settings, today: D
       priority: reason === "overdue" && daysLate > 10 ? "high" : "normal",
       rationale: reply ? `${why} Last email from ${s.contactName} about this order: "${reply.subject}" on ${nzDate(reply.receivedDateTime)}.` : `${why} No email from the supplier about this order in the inbox.`,
       sources: [{ system: "Infor LN", label: `Purchase order ${po.order}`, ref: po.order }, { system: "Infor LN", label: `Supplier ${s.supplier}`, ref: s.supplier }, ...(reply ? [{ system: "Microsoft 365", label: `Email "${reply.subject}"`, ref: `mail:${po.order}` }] : [])],
-      payload: { type: "supplier_email", supplierId: s.supplier, supplierName: s.name, to: { name: s.contactName, address: s.email }, subject, body, reason, purchaseOrder: po.order, items: po.lines.map((l) => l.item) },
+      payload: { type: "supplier_email", replyBy, supplierId: s.supplier, supplierName: s.name, to: { name: s.contactName, address: s.email }, subject, body, reason, purchaseOrder: po.order, items: po.lines.map((l) => l.item) },
       estimate: { ...ESTIMATES.supplier_email },
       // Late and part-delivered orders are chased before unconfirmed ones; within a group, the longest-waiting first.
       rank: { overdue: 0, partial: 1, low_stock: 2, unconfirmed: 3 }[reason] * 1000 - Math.min(999, Math.max(0, reason === "unconfirmed" ? daysSince(po.orderDate) : daysLate)),
@@ -213,7 +221,7 @@ export function planSupplierDrafts(d: SupplierData, settings: Settings, today: D
       agent: "supplier-outreach", kind: "supplier_email", title: `${s.name}: ${subject}`, priority: list.some((i) => i.onHand <= i.safetyStock) ? "high" : "normal",
       rationale: `Infor LN stock plus open orders covers less than ${lowStockCoverageWeeks} weeks of demand. ${stock}. Average lead time from ${s.name} is ${s.avgLeadTimeDays} days. The email does not show our stock levels.`,
       sources: [...list.map((i) => ({ system: "Infor LN", label: `Item ${i.item}`, ref: i.item })), { system: "Infor LN", label: `Supplier ${s.supplier}`, ref: s.supplier }],
-      payload: { type: "supplier_email", supplierId: s.supplier, supplierName: s.name, to: { name: s.contactName, address: s.email }, subject, reason: "low_stock", items: list.map((i) => i.item),
+      payload: { type: "supplier_email", replyBy, supplierId: s.supplier, supplierName: s.name, to: { name: s.contactName, address: s.email }, subject, reason: "low_stock", items: list.map((i) => i.item),
         body: `Hi ${s.contactName.split(" ")[0]},\n\nWe're planning our next order and would like to check current availability, pricing and lead time for:\n\n${lines}\n\nCould you let us know the earliest ship date you can offer and whether ${s.paymentTerms} terms still apply? If any of these are on allocation, please tell us so we can plan around it. A reply by ${replyByText} would be appreciated.\n\n${sign}` },
       estimate: { ...ESTIMATES.supplier_email },
       rank: 2000,

@@ -2,7 +2,7 @@ import type { Connectors } from "../connectors/index.js";
 import { addDays, isoDate } from "../data/rng.js";
 import type { LlmProvider } from "../llm/index.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
-import { buildSocialDrafts, FOLLOW_UP_DAYS, handledSupplierKeys, nzDate, planSupplierDrafts, RECENT_REPLY_DAYS, supplierRunSummary, type Draft, type SupplierPlan } from "./drafts.js";
+import { buildSocialDrafts, FOLLOW_UP_DAYS, handledSupplierKeys, nzDate, nzDay, planSupplierDrafts, RECENT_REPLY_DAYS, supplierRunSummary, type Draft, type SupplierPlan } from "./drafts.js";
 
 export const AGENTS: Record<AgentId, { name: string; description: string; team: string; reads: string[]; writes: string[] }> = {
   "social-media": {
@@ -120,10 +120,10 @@ export class AgentService {
       const sent = await this.connectors.m365.sendDraft(draft.id);
       outcome.push({ system: "Microsoft 365", ref: sent.id, label: `Email sent to ${p.to.address}` });
       const task = await this.connectors.clickup.createTask({
-        name: `Chase reply: ${p.supplierName} — ${p.purchaseOrder ?? p.subject}`, description: `Agent email sent to ${p.to.name} <${p.to.address}> on ${nzDate(isoDate(new Date()))}. Follow up if no reply.`,
-        list: "Purchasing", assignees: [by], due_date: isoDate(addDays(new Date(), FOLLOW_UP_DAYS)), tags: ["supplier", p.reason, "agent-drafted"],
+        name: `Chase reply: ${p.supplierName} — ${p.purchaseOrder ?? p.subject}`, description: `Agent email sent to ${p.to.name} <${p.to.address}> on ${nzDate(isoDate(nzDay(new Date())))}. Follow up if no reply.`,
+        list: "Purchasing", assignees: [by], due_date: isoDate(addDays(nzDay(new Date()), FOLLOW_UP_DAYS)), tags: ["supplier", p.reason, "agent-drafted"],
       });
-      outcome.push({ system: "ClickUp", ref: task.url, label: `Follow-up task ${task.id} in Purchasing, due ${nzDate(task.due_date ?? isoDate(addDays(new Date(), FOLLOW_UP_DAYS)))}` });
+      outcome.push({ system: "ClickUp", ref: task.url, label: `Follow-up task ${task.id} in Purchasing, due ${nzDate(task.due_date ?? isoDate(addDays(nzDay(new Date()), FOLLOW_UP_DAYS)))}` });
     }
     a.status = "approved"; a.decidedAt = new Date().toISOString(); a.decidedBy = by; a.reviewerNote = note; a.outcome = outcome;
     this.recordSaving(a);
