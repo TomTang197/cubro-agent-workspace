@@ -43,6 +43,7 @@ const RESOURCES: Record<string, Resource[]> = {
 const MAX_ROWS = 500;
 /** A record that is missing a field shows a dash in that cell instead of breaking the page. */
 const cell = (c: Col, r: Row, n: Names) => { try { return c.v(r, n) ?? "—"; } catch { return "—"; } };
+const textOf = (n: React.ReactNode): string => (n == null || typeof n === "boolean" ? "" : Array.isArray(n) ? n.map(textOf).join(" ") : typeof n === "object" ? textOf((n as { props?: { children?: React.ReactNode } }).props?.children) : String(n));
 const state = (s: ConnectorStatus) => (s.mode === "mock" ? { text: "Sample data", tone: "mock" } : s.connected ? { text: "Live", tone: "ok" } : { text: "Not connected", tone: "bad asis" });
 
 const missing = (s: ConnectorStatus) => s.settings.filter((x) => x.required && !x.set).length;
@@ -50,7 +51,8 @@ const missing = (s: ConnectorStatus) => s.settings.filter((x) => x.required && !
 function Records({ res, names }: { res: Resource; names: Names }) {
   const { data, error, loading, reload } = useApi<Row[]>(`/systems/${res.path}`);
   const [q, setQ] = useState("");
-  const rows = useMemo(() => (Array.isArray(data) ? data : []).filter((r) => !q || JSON.stringify(r).toLowerCase().includes(q.toLowerCase())), [data, q]);
+  // Search looks at what each row shows (a supplier's name, a formatted date) as well as the record behind it (codes, email bodies).
+  const rows = useMemo(() => (Array.isArray(data) ? data : []).filter((r) => !q || `${res.cols.map((c) => textOf(cell(c, r, names))).join(" ")} ${JSON.stringify(r)}`.toLowerCase().includes(q.trim().toLowerCase())), [data, q, res, names]);
   return (
     <>
       <div className="toolbar">
