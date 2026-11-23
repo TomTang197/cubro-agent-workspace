@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 const STEPS = [
-  { title: "Ask an assistant for drafts", body: "An assistant reads Cubro's systems and writes first drafts for you: social posts for Marketing, supplier emails for Purchasing. Your Today page has one button that asks for them." },
+  { title: "Ask an assistant for drafts", body: "An assistant reads Cubro's systems and writes first drafts for you: social posts for Marketing, supplier emails for Purchasing. Some are already waiting for you; when you run out, your Today page has a button to ask for more." },
   { title: "Read the draft", body: "Drafts open one at a time. Each one says why the assistant wrote it and where its facts came from, so you can check it quickly." },
   { title: "Approve, change or send back", body: "Approve it as it is, change the wording first, or send it back so it is not used. Nothing leaves Cubro until a person approves it, and you get a few seconds to undo." },
 ];
