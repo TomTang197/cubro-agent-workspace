@@ -11,9 +11,12 @@ export default function Approvals() {
   const [q, setQ] = useState("");
   const { data, error, reload } = useApi<ApprovalItem[]>(`/approvals?status=${status}${agent ? `&agent=${agent}` : ""}`);
   const nav = useNavigate();
-  const list = (data ?? []).filter((a) => !q || a.title.toLowerCase().includes(q.toLowerCase()));
-  const selected = list.find((a) => a.id === id) ?? (id ? undefined : list[0]);
   const dirty = useRef(false);
+  // A draft with unsaved edits stays in the list and stays open, whatever is typed in the search box.
+  const editing = useRef<string>();
+  const list = (data ?? []).filter((a) => !q || a.title.toLowerCase().includes(q.toLowerCase()) || (dirty.current && a.id === editing.current));
+  const selected = list.find((a) => a.id === id) ?? (id ? undefined : (dirty.current ? list.find((a) => a.id === editing.current) : undefined) ?? list[0]);
+  editing.current = selected?.id;
   const keepEdits = () => dirty.current && !window.confirm("You have unsaved edits to this draft. Leave without saving them?");
   const set = (k: string, v: string) => { if (keepEdits()) return; const p = new URLSearchParams(params); if (v) p.set(k, v); else p.delete(k); setParams(p); };
   const qs = params.toString() ? `?${params}` : "";
