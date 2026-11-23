@@ -1,5 +1,5 @@
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../server/app";
 import { generateSystemData } from "../server/data/seed";
 import { templateProvider } from "../server/llm";
@@ -286,6 +286,11 @@ describe("staff switching", () => {
     await request(app).post(`/api/approvals/${post.id}/approve`).send({ user: "Aroha Ngata", payload: { text: "Wording that must not stick" } }).expect(409);
     expect(post).toMatchObject({ status: "pending", payload: { ...was, scheduledFor: "2020-01-01T00:00:00.000Z" } });
     expect(post.edited).toBeFalsy();
+    const third = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
+    const save = vi.spyOn(store, "save").mockImplementationOnce(() => { throw new Error("disk full"); });
+    await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Priya Raman", payload: { subject: "What was sent" } }).expect(500);
+    save.mockRestore();
+    expect(third).toMatchObject({ status: "approved", edited: true, payload: { subject: "What was sent" } });
   });
   it("drops an assistant's drafts if the sample data is restored while it is still writing them", async () => {
     const store = new Store({ today });

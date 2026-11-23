@@ -139,7 +139,8 @@ export class AgentService {
       if (patch) this.change(a, patch);
       return await this[kind](id, by, note);
     } catch (e) {
-      a.payload = before.payload; a.edited = before.edited;
+      // Once the draft is decided the edits are what was sent, even if saving the decision then failed.
+      if (a.status === "pending") { a.payload = before.payload; a.edited = before.edited; }
       throw e;
     }
   }
