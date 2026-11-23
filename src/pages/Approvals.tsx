@@ -54,6 +54,8 @@ export default function Approvals() {
   const query = (change: Record<string, string>) => { const p = new URLSearchParams(params); p.set("agent", agent || "all"); for (const [k, v] of Object.entries(change)) { if (v) p.set(k, v); else p.delete(k); } return `?${p}`; };
   const set = (change: Record<string, string>) => { if (!keepEdits()) nav(`/approvals${query(change)}`); };
   const qs = query({});
+  // A draft decided under one team can be reopened after the reviewer has switched to the other, so its link names its own team.
+  const queueOf = (a: ApprovalItem) => (agent && agent !== a.agent ? a.agent : agent || "all");
   const guard = (e: { preventDefault: () => void }) => { if (keepEdits()) e.preventDefault(); };
 
   async function commit(h: Held, keepalive = false) {
@@ -83,7 +85,7 @@ export default function Approvals() {
     const h = drop();
     if (!h) return;
     giveBack(h);
-    nav(`/approvals/${h.item.id}${qs}`);
+    nav(`/approvals/${h.item.id}${query({ agent: queueOf(h.item) })}`);
   };
   // Leaving the page is not an undo: a decision still counting down is sent on.
   const leave = useRef(settle);
@@ -114,11 +116,11 @@ export default function Approvals() {
           : <Link className="to-list" to={`/approvals${query({ view: "", status: "" })}`} onClick={guard}>Back to one at a time</Link>}
       </div>
       {error && <div className="error">{error}</div>}
-      {failed && <div className="error" role="alert"><b>That didn't go through:</b> {failed.message} The draft is still waiting. <Link to={`/approvals/${failed.item.id}${qs}`} onClick={guard}>Open it</Link></div>}
+      {failed && <div className="error" role="alert"><b>That didn't go through:</b> {failed.message} The draft is still waiting. <Link to={`/approvals/${failed.item.id}${query({ agent: queueOf(failed.item) })}`} onClick={guard}>Open it</Link></div>}
       {done && !held && <div className="banner" role="status">
         <b>{done.status === "approved" ? (done.payload.type === "supplier_email" ? "Sent" : "Approved") : "Sent back"}:</b> {done.title}.{" "}
         {done.status === "approved" ? `${(done.outcome ?? []).map((o) => o.label).join(" · ")}.` : "Nothing was sent."}{" "}
-        <Link to={`/approvals/${done.id}?status=${done.status}&agent=${agent || "all"}`} onClick={guard}>View</Link>
+        <Link to={`/approvals/${done.id}?status=${done.status}&agent=${queueOf(done)}`} onClick={guard}>View</Link>
       </div>}
       {focus ? (
         selected ? <div className="one"><Detail key={selected.id} item={selected} onDirty={(d) => { dirty.current = d; }} restore={take(selected.id)} onDecide={(kind, note, changes) => decide({ item: selected, kind, note, by: getUser(), changes }, list[at + 1]?.id)} /></div>
