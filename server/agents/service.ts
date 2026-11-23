@@ -29,8 +29,14 @@ export class AgentService {
 
   get providerName() { return this.llm.name; }
 
+  /** Work that was under way when the sample data was restored belongs to the old data, so none of it is saved into the new. */
+  private unlessRestored(state: Store["state"]) {
+    if (this.store.state !== state) throw new HttpError(409, "The sample data was restored while this was under way, so nothing was saved. Please try again.");
+  }
+
   async run(agent: AgentId, triggeredBy: string, today = this.now()): Promise<AgentRun> {
     const startedAt = new Date().toISOString();
+    const state = this.store.state;
     const steps: AgentRun["steps"] = [];
     const step = (system: string, action: string, detail: string) => steps.push({ at: new Date().toISOString(), system, action, detail });
     const { settings } = this.store.state;
@@ -85,6 +91,7 @@ export class AgentService {
       }
     };
     await Promise.all(Array.from({ length: 4 }, worker));
+    this.unlessRestored(state);
     step("Model", "Draft", kept
       ? `${drafts.length - kept} of ${drafts.length} drafts written with ${this.llm.name}; ${kept} kept the built-in template (${firstError})`
       : `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} written with ${this.llm.name}`);
@@ -106,15 +113,20 @@ export class AgentService {
     return a;
   }
 
-  edit(id: string, patch: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>, by: string) {
-    const a = this.find(id);
-    if (a.status !== "pending") throw new HttpError(409, "Only pending items can be edited");
+  /** Checks a reviewer's edits and puts them on the draft, without saving. */
+  private change(a: ApprovalItem, patch: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>) {
     this.untouched(a, "edited");
     const allowed = a.payload.type === "social_post" ? ["text", "hashtags", "scheduledFor", "channel"] : ["subject", "body"];
     for (const k of Object.keys(patch)) if (!allowed.includes(k)) throw new HttpError(400, `Field ${k} cannot be edited`);
     if (a.payload.type === "social_post") this.checkSocialEdit(a, patch as Partial<SocialPostPayload>);
     Object.assign(a.payload, patch);
     a.edited = true;
+  }
+
+  edit(id: string, patch: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>, by: string) {
+    const a = this.find(id);
+    if (a.status !== "pending") throw new HttpError(409, "Only pending items can be edited");
+    this.change(a, patch);
     this.store.log(by, "edited draft", a.title);
     this.store.save();
     return a;
@@ -123,20 +135,39 @@ export class AgentService {
   /** Approvals being carried out right now: a second click or a second reviewer must not send the same email twice. */
   private approving = new Set<string>();
 
+  /** A decision can carry the reviewer's edits. They are kept only if the decision goes through, so one that fails leaves the draft as everyone else sees it. */
+  async decide(kind: "approve" | "reject", id: string, by: string, note?: string, patch?: Partial<SocialPostPayload> | Partial<SupplierEmailPayload>) {
+    const a = this.find(id);
+    if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
+    const before = { payload: structuredClone(a.payload), edited: a.edited };
+    let changed = false;
+    try {
+      if (patch) { this.change(a, patch); changed = true; }
+      return await this[kind](id, by, note);
+    } catch (e) {
+      // Once the draft is decided, or approving it has done part of the work, the edits are what went out, even if a later step or the save then failed.
+      if (changed && a.status === "pending" && !a.outcome?.length) { a.payload = before.payload; a.edited = before.edited; }
+      throw e;
+    }
+  }
+
   async approve(id: string, by: string, note?: string) {
     const a = this.find(id);
     if (a.status !== "pending") throw new HttpError(409, `Already ${a.status}`);
     if (this.approving.has(id)) throw new HttpError(409, "This is already being approved. Refresh in a moment to see the result.");
+    const state = this.store.state;
     this.approving.add(id);
     try {
-      await this.carryOut(a, by, note);
+      await this.carryOut(a, by, note, state);
     } catch (e) {
-      if (e instanceof HttpError || !a.outcome?.length) throw e;
+      if (!a.outcome?.length) delete a.outcome;
+      if (e instanceof HttpError || !a.outcome) throw e;
       const done = a.outcome.map((o) => o.label).join(". ");
       throw new HttpError(502, `Done so far: ${done}. The next step failed: ${e instanceof Error ? e.message : String(e)} Approve again to finish; what is already done will not be repeated.`);
     } finally {
       this.approving.delete(id);
     }
+    this.unlessRestored(state);
     a.status = "approved"; a.decidedAt = new Date().toISOString(); a.decidedBy = by; a.reviewerNote = note;
     this.recordSaving(a);
     this.store.log(by, "approved", a.title);
@@ -163,10 +194,11 @@ export class AgentService {
   }
 
   /** Does each step of an approval once, saving after every step so a retry picks up where a failure stopped. */
-  private async carryOut(a: ApprovalItem, by: string, note?: string) {
+  private async carryOut(a: ApprovalItem, by: string, note: string | undefined, state: Store["state"]) {
     const outcome = (a.outcome ??= []);
     const did = (step: string) => outcome.find((o) => o.step === step);
     const record = (step: string, system: string, ref: string, label: string, replaces?: string) => {
+      this.unlessRestored(state);
       const at = replaces ? outcome.findIndex((o) => o.step === replaces) : -1;
       const done = { system, ref, label, step, at: new Date().toISOString() };
       if (at >= 0) outcome[at] = done; else outcome.push(done);

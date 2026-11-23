@@ -1,5 +1,5 @@
 import request from "supertest";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createApp } from "../server/app";
 import { generateSystemData } from "../server/data/seed";
 import { templateProvider } from "../server/llm";
@@ -276,6 +276,73 @@ describe("settings", () => {
 });
 
 describe("staff switching", () => {
+  it("saves a reviewer's edits with the decision, so nothing changes if the decision is undone first", async () => {
+    const { store, app } = setup();
+    const first = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
+    const res = await request(app).post(`/api/approvals/${first.id}/approve`).send({ user: "Priya Raman", payload: { subject: "A clearer subject" } }).expect(200);
+    expect(res.body).toMatchObject({ status: "approved", edited: true, payload: { subject: "A clearer subject" } });
+    const second = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
+    await request(app).post(`/api/approvals/${second.id}/reject`).send({ user: "Priya Raman", payload: { to: { address: "x@example.com" } } }).expect(400);
+    expect(second).toMatchObject({ status: "pending" });
+    expect(second.edited).toBeFalsy();
+    const post = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "social_post")!;
+    const was = structuredClone(post.payload);
+    post.payload = { ...post.payload, scheduledFor: "2020-01-01T00:00:00.000Z" } as typeof post.payload;
+    await request(app).post(`/api/approvals/${post.id}/approve`).send({ user: "Aroha Ngata", payload: { text: "Wording that must not stick" } }).expect(409);
+    expect(post).toMatchObject({ status: "pending", payload: { ...was, scheduledFor: "2020-01-01T00:00:00.000Z" } });
+    expect(post.edited).toBeFalsy();
+    const third = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
+    const save = vi.spyOn(store, "save").mockImplementationOnce(() => { throw new Error("disk full"); });
+    // The first step (the draft in the mailbox) is done with the edits, so they stay even though the approval stopped there.
+    await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Priya Raman", payload: { subject: "What was sent" } }).expect(502);
+    save.mockRestore();
+    expect(third).toMatchObject({ status: "pending", edited: true, payload: { subject: "What was sent" }, outcome: [{ step: "draft" }] });
+    await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Mark Jensen", payload: { subject: "Typed after it was saved" } }).expect(409);
+    await request(app).post(`/api/approvals/${third.id}/reject`).send({ user: "Mark Jensen" }).expect(409);
+    expect(third).toMatchObject({ status: "pending", payload: { subject: "What was sent" } });
+    await request(app).post(`/api/approvals/${third.id}/approve`).send({ user: "Priya Raman" }).expect(200);
+    expect(store.state.systems.m365.messages.filter((m) => m.subject === "What was sent")).toHaveLength(1);
+    await request(app).post(`/api/approvals/${third.id}/reject`).send({ user: "Mark Jensen", payload: { subject: "Typed after it was sent" } }).expect(409);
+    expect(third).toMatchObject({ status: "approved", decidedBy: "Priya Raman", payload: { subject: "What was sent" } });
+    // A decision that fails before any step leaves no trace of having started.
+    expect(post.outcome).toBeUndefined();
+  });
+  it("drops an assistant's drafts if the sample data is restored while it is still writing them", async () => {
+    const store = new Store({ today });
+    let restored = false;
+    const app: ReturnType<typeof createApp> = createApp(store, { env: {}, now: () => today, llm: { name: "slow", polish: async ({ draft }) => { if (!restored) { restored = true; await request(app).post("/api/reset").expect(200); } return draft; } } });
+    const res = await request(app).post("/api/agents/social-media/run").send({ user: "Aroha Ngata" }).expect(409);
+    expect(res.body.error).toMatch(/sample data was restored/);
+    expect(restored).toBe(true);
+    expect(store.state).toEqual(new Store({ today }).state);
+  });
+  it("saves nothing from an approval if the sample data is restored while it is under way", async () => {
+    const { store, app } = setup();
+    const post = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "social_post")!;
+    const tasks = store.state.systems.clickup.tasks, add = tasks.unshift.bind(tasks);
+    tasks.unshift = (...t) => { const n = add(...t); store.reset(today); return n; };
+    const res = await request(app).post(`/api/approvals/${post.id}/approve`).send({ user: "Aroha Ngata" }).expect(409);
+    expect(res.body.error).toMatch(/sample data was restored/);
+    expect(store.state).toEqual(new Store({ today }).state);
+  });
+  it("says it is a demo only while every system runs on sample data", async () => {
+    const { store, app } = setup();
+    expect((await request(app).get("/api/workspace").expect(200)).body).toEqual({ demo: true });
+    const live = createApp(store, { llm: templateProvider, env: { CONNECTOR_CLICKUP: "live" }, now: () => today });
+    expect((await request(live).get("/api/workspace").expect(200)).body).toEqual({ demo: false });
+  });
+  it("restores the sample data in one call, undoing approvals and settings", async () => {
+    const { store, app } = setup();
+    const first = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
+    await request(app).post(`/api/approvals/${first.id}/approve`).send({ user: "Priya Raman" }).expect(200);
+    await request(app).put("/api/settings").send({ agents: { "social-media": { enabled: false } } }).expect(200);
+    const waiting = () => store.state.approvals.filter((a) => a.status === "pending").length;
+    const before = waiting();
+    await request(app).post("/api/reset").expect(200);
+    expect(waiting()).toBe(before + 1);
+    expect(store.state.settings.agents["social-media"].enabled).toBe(true);
+    expect(store.state.approvals.some((a) => a.decidedBy === "Priya Raman" && a.id === first.id)).toBe(false);
+  });
   it("records runs and approvals under the staff member chosen in the workspace", async () => {
     const { app, store } = setup();
     const run = await request(app).post("/api/agents/supplier-outreach/run").set("x-cubro-user", "Hemi Walker").send({}).expect(200);
