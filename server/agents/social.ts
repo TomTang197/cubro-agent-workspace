@@ -30,6 +30,7 @@ const EVENT_LEAD_DAYS = 7;
 const MAX_STORIES = 2;
 const MAX_WAITING_PER_CAMPAIGN = 2;
 const CAMPAIGN_FULL = "campaign-full:";
+const CAMPAIGN_SEEN = "campaign-seen:";
 const PRAISE = /\b(love|loves|easier|great|well|quick|happy|pleased|thank|dropped|comfortable|impressed)\b/i;
 const NOT_PRAISE = /\?|\b(request|requesting|need|needs|replac\w*|stick\w*|fault\w*|broken|demo|quote|complain\w*)\b/i;
 const GENERIC = new Set(["care", "plus", "and", "the", "for", "set", "kit", "with"]);
@@ -54,6 +55,13 @@ export function socialTopic(a: Pick<ApprovalItem, "payload" | "sources">) {
   return `story:${first.ref}`;
 }
 
+/** What the drafting model is told about a post. The reviewer's note on a customer story names the customer, so the model never sees it. */
+export function socialBrief(d: Pick<Draft, "payload" | "sources" | "rationale">) {
+  return socialTopic(d)?.startsWith("story:")
+    ? "A customer gave this feedback about our equipment. Quote it as written and do not name the customer, their staff or their town."
+    : d.rationale;
+}
+
 /** Topics the planner should leave alone: waiting for review, already approved, or decided within the last planning window. */
 export function takenSocialTopics(approvals: ApprovalItem[], today: Date, horizonDays: number) {
   const recent = new Date(today.getTime() - horizonDays * 86_400_000).toISOString();
@@ -62,12 +70,14 @@ export function takenSocialTopics(approvals: ApprovalItem[], today: Date, horizo
   for (const a of approvals) {
     const topic = socialTopic(a);
     if (!topic) continue;
-    if (a.status === "pending" && topic.startsWith("campaign:")) {
-      const id = topic.split(":")[1];
-      waiting.set(id, (waiting.get(id) ?? 0) + 1);
-      if (waiting.get(id)! >= MAX_WAITING_PER_CAMPAIGN) taken.add(`${CAMPAIGN_FULL}${id}`);
+    const campaign = topic.startsWith("campaign:") ? topic.split(":")[1] : undefined;
+    if (campaign && a.status === "pending") {
+      waiting.set(campaign, (waiting.get(campaign) ?? 0) + 1);
+      if (waiting.get(campaign)! >= MAX_WAITING_PER_CAMPAIGN) taken.add(`${CAMPAIGN_FULL}${campaign}`);
     }
-    if (a.status === "pending" || a.createdAt >= recent || (a.status === "approved" && !topic.startsWith("campaign:"))) taken.add(topic);
+    const live = a.status === "pending" || a.createdAt >= recent;
+    if (campaign && (live || a.status === "approved")) taken.add(`${CAMPAIGN_SEEN}${campaign}`);
+    if (live || (a.status === "approved" && !campaign)) taken.add(topic);
   }
   return taken;
 }
@@ -128,6 +138,8 @@ export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date
     const from = oneDay ? first : later(first, c.StartDate);
     const latest = oneDay ? sooner(last, shiftDay(c.StartDate, -1)) : sooner(last, c.EndDate);
     if (from > latest) continue;
+    // One day gets one post: once it is waiting, approved or rejected, swapping the product does not bring it back.
+    if (oneDay && taken.has(`${CAMPAIGN_SEEN}${c.Id}`)) continue;
     const ready = c.ProductSkus.map(item).filter((p): p is Item => !!p && launched(p, latest));
     const pictured = ready.filter((p) => d.assets.some((a) => a.productSku === p.item));
     const stocked = (pictured.length ? pictured : ready).filter((p, _, all) => p.onHand > 0 || all.every((x) => x.onHand <= 0));
@@ -142,14 +154,14 @@ export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date
       kind: "campaign", topic: `campaign:${c.Id}:${p?.item ?? ""}`, title: `${c.Name}${p ? ` — ${p.description}` : ""}`, campaign: c.Name,
       priority: c.Status === "In Progress" ? "high" : "normal",
       text: (ch) => ch === "LinkedIn"
-        ? `${lead}${c.KeyMessage}\n\n${p ? `The ${p.description} is part of our ${p.itemGroup.toLowerCase()} range, supported by our team here in Aotearoa. ` : ""}We partner with ${audience} to match equipment to the people using it.\n\nTalk to your Cubro account manager or visit cubro.co.nz to book a demo.`
+        ? `${lead}${c.KeyMessage}\n\n${p ? `The ${p.description} is part of our ${p.itemGroup.toLowerCase()} range, supported by our team here in Aotearoa. ` : ""}We partner with ${audience} to match equipment to the people using it.\n\n${oneDay ? "Ask your Cubro account manager for the details, or get in touch at cubro.co.nz." : "Talk to your Cubro account manager or visit cubro.co.nz to book a demo."}`
         : ch === "Instagram"
-          ? `${lead}${c.KeyMessage}${p ? ` Meet the ${p.description}.` : ""} Supporting NZ carers 💙`
-          : `${lead}${c.KeyMessage}${p ? ` See the ${p.description} in action and ask us about a trial at your facility.` : ""} Message us to find out more.`,
+          ? `${lead}${c.KeyMessage}${p ? ` Meet the ${p.description}.` : ""}${oneDay ? " Message us for the details." : ""} Supporting NZ carers 💙`
+          : `${lead}${c.KeyMessage}${p ? ` See the ${p.description} in action and ask us about a trial at your facility.` : ""} ${oneDay ? "Message us for the details." : "Message us to find out more."}`,
       tags: [...(p ? HASHTAGS[p.itemGroup] ?? [] : []), "#Cubro", "#NZHealth"],
       skus: p ? [p.item] : [],
       why: `Salesforce campaign "${c.Name}" ${oneDay ? `is on ${shortDay(c.StartDate)}` : `runs ${shortDay(c.StartDate)} to ${shortDay(c.EndDate)}`}${p ? `; featured product ${p.item} has ${p.onHand} units on hand in Infor LN` : ""}.`,
-      timing: oneDay ? "Scheduled before the day so people can plan for it." : "Scheduled inside the campaign dates.",
+      timing: oneDay ? "Scheduled before the day so people can plan for it. Salesforce has no start time or sign-up link for it, so add those before publishing." : "Scheduled inside the campaign dates.",
       earliest, latest,
       sources: [{ system: "Salesforce", label: `Campaign: ${c.Name}`, ref: c.Id }, ...(p ? [{ system: "Infor LN", label: `Item ${p.item}`, ref: p.item }] : [])],
     });

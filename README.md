@@ -23,7 +23,13 @@ All four systems are simulated with deterministic sample data (`server/data/seed
 
 To connect a real system, implement its functions in `server/connectors/live/index.ts` and set `CONNECTOR_M365=live` (or `CONNECTOR_SALESFORCE`, `CONNECTOR_CLICKUP`, `CONNECTOR_INFORLN`). Nothing else changes.
 
-Drafts come from built-in templates. Set `OPENAI_API_KEY` (optionally `OPENAI_MODEL`, `OPENAI_BASE_URL`) to have a model rewrite them (`server/llm/index.ts`).
+## Drafting model
+
+Set `GEMINI_API_KEY` and Google Gemini writes each post and supplier email from the facts the agent collected (`server/llm/index.ts`, Gemini Interactions API). `GEMINI_MODEL` picks the model (default `gemini-4-hydrogen`; `gemini-4-carbon` is Google's strongest). Requests are sent with `store: false`.
+
+The model writes at most 100 drafts per UTC day (`LLM_DAILY_DRAFT_LIMIT` to change), because the API has no sign-in of its own and every draft spends the key's quota; past the limit, drafts keep their template text until the next day.
+
+Without a key, drafts come from the built-in templates. If a model call fails, that draft keeps its template text and the run's Model step says how many did and why. `OPENAI_API_KEY` (optionally `OPENAI_MODEL`, `OPENAI_BASE_URL`) uses an OpenAI-compatible model instead when no Gemini key is set.
 
 ## Run
 

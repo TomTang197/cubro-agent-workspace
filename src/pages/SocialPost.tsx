@@ -1,4 +1,4 @@
-import { fromNzInput, nzDay, shortDay, toNzInput } from "../../server/agents/nzTime";
+import { fromNzInput, nzClock, nzDay, shortDay, toNzInput } from "../../server/agents/nzTime";
 import { when, type ApprovalItem } from "../api";
 
 type Item = ApprovalItem;
@@ -50,7 +50,8 @@ export function SocialFields({ p, edits, onChange, pending }: { p: Post; edits: 
       <p className="small muted field-hint">{edits.text.length} characters</p>
       <div className="pair">
         <label className="field"><span>Hashtags <em className="muted">— separate with spaces</em></span><input value={edits.hashtags} onChange={set("hashtags")} placeholder="#Cubro #HealthcareNZ" /></label>
-        <label className="field"><span>Publish on <em className="muted">— NZ time</em></span><input type="datetime-local" value={edits.scheduledFor} min={toNzInput(new Date().toISOString())} onChange={set("scheduledFor")} /></label>
+        <label className="field"><span>Publish on <em className="muted">— NZ time</em></span><input type="datetime-local" value={edits.scheduledFor} min={toNzInput(new Date().toISOString())} onChange={set("scheduledFor")} />
+          {edits.scheduledFor && <small className="muted">{shortDay(nzDay(fromNzInput(edits.scheduledFor)))}, {nzClock(fromNzInput(edits.scheduledFor))}</small>}</label>
       </div>
     </>
   );

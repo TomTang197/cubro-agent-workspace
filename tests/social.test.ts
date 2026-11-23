@@ -129,3 +129,38 @@ describe("social media planner in the app", () => {
     await request(app).post(`/api/approvals/${item.id}/reject`).send({ note: "Too late" }).expect(200);
   });
 });
+
+describe("one-day campaigns", () => {
+  const oneDay = systems.salesforce.campaigns.find((c) => c.StartDate === c.EndDate && c.StartDate > nzDay(today))!;
+  const mine = (store: Store) => store.state.approvals.filter((a) => a.agent === "social-media" && post(a).campaign === oneDay.Name && !a.title.includes("Event:"));
+
+  it("a rejected post for the day does not come back with another product", async () => {
+    const { app, store } = setup();
+    for (const a of mine(store)) store.state.approvals.splice(store.state.approvals.indexOf(a), 1);
+    await request(app).post("/api/agents/social-media/run").send({ user: "Aroha Ngata" }).expect(200);
+    const drafted = mine(store);
+    expect(drafted).toHaveLength(1);
+    expect(drafted[0].rationale).toContain("no start time or sign-up link");
+    await request(app).post(`/api/approvals/${drafted[0].id}/reject`).send({ note: "Hold until the link is confirmed" }).expect(200);
+    for (let i = 0; i < 3; i++) await request(app).post("/api/agents/social-media/run").send({ user: "Aroha Ngata" }).expect(200);
+    expect(mine(store)).toHaveLength(1);
+  });
+});
+
+describe("drafting model", () => {
+  it("is never told who a quoted customer is", async () => {
+    const store = new Store({ today });
+    const seen: { draft: string; context: string }[] = [];
+    const app = createApp(store, { llm: { name: "Spy", polish: async (i) => { seen.push(i); return i.draft; } }, env: {}, now: () => today });
+    store.state.approvals.length = 0;
+    await request(app).post("/api/agents/social-media/run").send({ user: "Aroha Ngata" }).expect(200);
+    const stories = store.state.approvals.filter((a) => a.title.includes("Customer story"));
+    expect(stories.length).toBeGreaterThan(0);
+    const names = store.state.systems.salesforce.accounts.map((a) => a.Name);
+    for (const s of stories) {
+      const sent = seen.find((i) => i.draft === post(s).text)!;
+      expect(names.some((n) => sent.context.includes(n) || sent.draft.includes(n))).toBe(false);
+      expect(names.some((n) => s.rationale.includes(n))).toBe(true);
+    }
+  });
+});

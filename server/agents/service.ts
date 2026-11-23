@@ -4,7 +4,7 @@ import type { LlmProvider } from "../llm/index.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
 import { buildSupplierDrafts, type Draft } from "./drafts.js";
 import { nzDay, shortDay } from "./nzTime.js";
-import { buildSocialDrafts, takenSocialTopics } from "./social.js";
+import { buildSocialDrafts, socialBrief, takenSocialTopics } from "./social.js";
 
 export const AGENTS: Record<AgentId, { name: string; description: string; team: string; reads: string[]; writes: string[] }> = {
   "social-media": {
@@ -59,14 +59,24 @@ export class AgentService {
       }));
       drafts = buildSupplierDrafts({ items, suppliers, purchaseOrders }, settings, today, pending);
     }
-    for (const d of drafts) {
-      if (d.payload.type === "social_post") {
-        d.payload.text = await this.llm.polish({ task: `Write a ${d.payload.channel} post`, draft: d.payload.text, context: d.rationale, tone: settings.social.tone });
-      } else {
-        d.payload.body = await this.llm.polish({ task: "Write a supplier email", draft: d.payload.body, context: d.rationale, tone: "Polite, direct, professional" });
+    let kept = 0, firstError = "";
+    const queue = [...drafts];
+    const worker = async () => {
+      for (let d = queue.shift(); d; d = queue.shift()) {
+        const p = d.payload;
+        try {
+          if (p.type === "social_post") p.text = await this.llm.polish({ task: `Write a ${p.channel} post`, draft: p.text, context: socialBrief(d), tone: settings.social.tone });
+          else p.body = await this.llm.polish({ task: "Write the body of a supplier email", draft: p.body, context: d.rationale, tone: "Polite, direct, professional" });
+        } catch (e) {
+          kept++;
+          firstError ||= e instanceof Error ? e.message : String(e);
+        }
       }
-    }
-    step("Model", "Draft", `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} written with ${this.llm.name}`);
+    };
+    await Promise.all(Array.from({ length: 4 }, worker));
+    step("Model", "Draft", kept
+      ? `${drafts.length - kept} of ${drafts.length} drafts written with ${this.llm.name}; ${kept} kept the built-in template (${firstError})`
+      : `${drafts.length} ${drafts.length === 1 ? "draft" : "drafts"} written with ${this.llm.name}`);
     const run: AgentRun = {
       id: this.store.nextId("run"), agent, startedAt, finishedAt: new Date().toISOString(), triggeredBy, provider: this.llm.name,
       itemsCreated: drafts.length, steps,
