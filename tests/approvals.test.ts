@@ -68,6 +68,39 @@ describe("approving when a connected system fails part-way", () => {
     expect(store.state.systems.clickup.tasks.length).toBe(tasks + 1);
   });
 
+  it("lets a post whose time has passed be finished once its publishing task exists", async () => {
+    const store = new Store({ today });
+    const connectors = createConnectors(store, {});
+    let clock = today;
+    const agents = new AgentService(store, connectors, templateProvider, () => clock);
+    const item = pending(store, "social_post");
+    const postTeams = connectors.m365.postTeamsMessage.bind(connectors.m365);
+    let fail = true;
+    connectors.m365.postTeamsMessage = async (c, t) => { if (fail) throw new Error("Microsoft 365: webhook refused."); return postTeams(c, t); };
+    await expect(agents.approve(item.id, "Aroha Ngata")).rejects.toThrow(/next step failed/);
+    clock = new Date(new Date((item.payload as { scheduledFor: string }).scheduledFor).getTime() + 3_600_000);
+    fail = false;
+    await agents.approve(item.id, "Aroha Ngata");
+    expect(item.status).toBe("approved");
+    const untouched = store.state.approvals.find((a) => a.status === "pending" && a.kind === "social_post" && new Date((a.payload as { scheduledFor: string }).scheduledFor) < clock);
+    if (untouched) await expect(agents.approve(untouched.id, "Aroha Ngata")).rejects.toThrow(/has passed/);
+  });
+
+  it("dates the follow-up from the day the email went when the approval is finished later", async () => {
+    const { store, connectors, agents } = setup();
+    const item = pending(store, "supplier_email");
+    const createTask = connectors.clickup.createTask.bind(connectors.clickup);
+    let fail = true;
+    connectors.clickup.createTask = async (input) => { if (fail) throw new Error("ClickUp: 503 from api.clickup.com."); return createTask(input); };
+    await expect(agents.approve(item.id, "Priya Raman")).rejects.toThrow(/next step failed/);
+    item.outcome!.find((o) => o.step === "email")!.at = "2026-11-02T21:00:00Z"; // Tuesday 3 November, 10am in New Zealand
+    fail = false;
+    await agents.approve(item.id, "Priya Raman");
+    const task = store.state.systems.clickup.tasks[0];
+    expect(task.description).toContain("on 3 November 2026");
+    expect(task.due_date).toBe("2026-11-06");
+  });
+
   it("lets only one of two approvals at the same moment through", async () => {
     const { store, agents } = setup();
     const item = pending(store, "supplier_email"), subject = (item.payload as SupplierEmailPayload).subject;

@@ -168,14 +168,16 @@ export class AgentService {
     const did = (step: string) => outcome.find((o) => o.step === step);
     const record = (step: string, system: string, ref: string, label: string, replaces?: string) => {
       const at = replaces ? outcome.findIndex((o) => o.step === replaces) : -1;
-      if (at >= 0) outcome[at] = { system, ref, label, step }; else outcome.push({ system, ref, label, step });
+      const done = { system, ref, label, step, at: new Date().toISOString() };
+      if (at >= 0) outcome[at] = done; else outcome.push(done);
       this.store.save();
     };
     if (a.payload.type === "social_post") {
       const p = a.payload;
       const on = nzDay(p.scheduledFor);
       const at = `${shortDay(on)} at ${nzClock(p.scheduledFor)}`;
-      if (new Date(p.scheduledFor) < this.now()) throw new HttpError(409, `This post was planned for ${shortDay(on)}, which has passed. Pick a new date or reject it.`);
+      // A part-done approval can always be finished, even late: its publishing task already exists and it can no longer be edited or rejected.
+      if (!outcome.length && new Date(p.scheduledFor) < this.now()) throw new HttpError(409, `This post was planned for ${shortDay(on)}, which has passed. Pick a new date or reject it.`);
       if (!did("task")) {
         const task = await this.connectors.clickup.createTask({
           name: `Publish ${p.channel} post — ${new Date(p.scheduledFor).toLocaleDateString("en-NZ", { timeZone: "Pacific/Auckland" })}`,
@@ -199,11 +201,13 @@ export class AgentService {
         record("email", "Microsoft 365", sent.id, `Email sent to ${p.to.address}`, "draft");
       }
       if (!did("followup")) {
+        // Dated from when the email went, which is earlier than today if this approval is being finished later.
+        const sentOn = nzMidnight(new Date(did("email")?.at ?? Date.now())), due = isoDate(addDays(sentOn, FOLLOW_UP_DAYS));
         const task = await this.connectors.clickup.createTask({
-          name: `Chase reply: ${p.supplierName} — ${p.purchaseOrder ?? p.subject}`, description: `Agent email sent to ${p.to.name} <${p.to.address}> on ${nzDate(isoDate(nzMidnight(new Date())))}. Follow up if no reply.`,
-          list: "Purchasing", assignees: [by], due_date: isoDate(addDays(nzMidnight(new Date()), FOLLOW_UP_DAYS)), tags: ["supplier", p.reason, "agent-drafted"],
+          name: `Chase reply: ${p.supplierName} — ${p.purchaseOrder ?? p.subject}`, description: `Agent email sent to ${p.to.name} <${p.to.address}> on ${nzDate(isoDate(sentOn))}. Follow up if no reply.`,
+          list: "Purchasing", assignees: [by], due_date: due, tags: ["supplier", p.reason, "agent-drafted"],
         });
-        record("followup", "ClickUp", task.url, `Follow-up task ${task.id} in Purchasing, due ${nzDate(task.due_date ?? isoDate(addDays(nzMidnight(new Date()), FOLLOW_UP_DAYS)))}`);
+        record("followup", "ClickUp", task.url, `Follow-up task ${task.id} in Purchasing, due ${nzDate(task.due_date ?? due)}`);
       }
     }
   }
