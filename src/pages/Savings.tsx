@@ -36,7 +36,7 @@ export default function Savings() {
       <section className="card"><h2>Cumulative savings (NZD)</h2>
         <div style={{ height: 220 }}><ResponsiveContainer><AreaChart data={cumulative}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#0000001a" /><XAxis dataKey="date" tickFormatter={(d) => day(d).replace(/ \d{4}$/, "")} fontSize={12} /><YAxis fontSize={12} width={50} /><Tooltip formatter={(v: number) => nzd(v)} labelFormatter={day} /><Area dataKey="total" stroke="#317CFF" fill="#317CFF22" /></AreaChart></ResponsiveContainer></div>
       </section>
-      <section className="card flush">
+      <section className="card flush scroll">
         <table className="table"><thead><tr><th>Date</th><th>Agent</th><th>Work</th><th className="num">By hand</th><th className="num">With agent</th><th className="num">Saved</th><th className="num">NZD</th></tr></thead>
           <tbody>{entries.slice(0, 200).map((e) => <tr key={e.id}><td>{day(e.date)}</td><td>{AGENT_NAMES[e.agent]}</td><td>{e.description}</td><td className="num">{e.manualMinutes} min</td><td className="num">{e.agentAssistedMinutes} min</td><td className="num">{e.minutesSaved} min</td><td className="num">{nzd(e.dollarsSaved)}</td></tr>)}</tbody></table>
       </section>
