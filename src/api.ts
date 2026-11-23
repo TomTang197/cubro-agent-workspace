@@ -51,4 +51,5 @@ export const day = (iso: string) => new Date(iso.length === 10 ? iso + "T00:00:0
 export const weekday = (iso: string) => { const d = new Date(iso.slice(0, 10) + "T00:00:00Z"), f = (o: Intl.DateTimeFormatOptions) => d.toLocaleDateString("en-NZ", { ...o, timeZone: "UTC" }); return `${f({ weekday: "long" })} ${d.getUTCDate()} ${f({ month: "long" })}`; };
 export const todayNz = () => new Date().toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" });
 export const AGENT_NAMES: Record<AgentId, string> = { "social-media": "Social Media Planner", "supplier-outreach": "Supplier Outreach" };
-export const STAFF = ["Aroha Ngata", "Sophie Turner", "Liam Chen", "Priya Raman", "Mark Jensen", "Hemi Walker"];
+export const TEAMS: Record<string, string[]> = { Marketing: ["Aroha Ngata", "Sophie Turner", "Liam Chen"], Purchasing: ["Priya Raman", "Mark Jensen", "Hemi Walker"] };
+export const STAFF = Object.values(TEAMS).flat();

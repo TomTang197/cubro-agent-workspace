@@ -16,7 +16,7 @@ export const AGENTS: Record<AgentId, { name: string; description: string; team: 
   "supplier-outreach": {
     name: "Supplier Outreach",
     team: "Purchasing",
-    description: "Checks Infor LN every morning for overdue, unconfirmed or part-delivered purchase orders and low-stock items, and drafts the supplier email for each.",
+    description: "Checks Infor LN for overdue, unconfirmed or part-delivered purchase orders and low-stock items, and drafts the supplier email for each.",
     reads: ["Infor LN purchase orders, items & suppliers", "Outlook supplier inbox"],
     writes: ["Outlook email to supplier", "ClickUp Purchasing follow-up task"],
   },
@@ -32,6 +32,7 @@ export class AgentService {
     const steps: AgentRun["steps"] = [];
     const step = (system: string, action: string, detail: string) => steps.push({ at: new Date().toISOString(), system, action, detail });
     const { settings } = this.store.state;
+    if (!settings.agents[agent].enabled) throw new HttpError(409, `${AGENTS[agent].name} is paused. Turn it back on in Settings to run it.`);
     let drafts: Draft[];
     let plan: SupplierPlan | undefined;
     if (agent === "social-media") {
