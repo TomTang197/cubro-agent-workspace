@@ -216,3 +216,12 @@ describe("retiming a post", () => {
     expect(post(item).notAfter).toBe("2026-12-01");
   });
 });
+
+describe("a plan made while posts are already waiting", () => {
+  it("does not put a new post on the same channel at the same time as one waiting or approved", async () => {
+    const { app, store } = setup();
+    await request(app).post("/api/agents/social-media/run").send({ user: "Aroha Ngata" }).expect(200);
+    const slots = store.state.approvals.filter((a) => a.kind === "social_post" && a.status !== "rejected" && new Date(post(a).scheduledFor) > today).map((a) => `${post(a).channel} ${post(a).scheduledFor}`);
+    expect(new Set(slots).size).toBe(slots.length);
+  });
+});

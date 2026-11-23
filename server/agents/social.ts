@@ -85,7 +85,12 @@ export function takenSocialTopics(approvals: ApprovalItem[], today: Date, horizo
   return taken;
 }
 
-export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date, offset = 0, taken: ReadonlySet<string> = new Set()): Draft[] {
+/** Channel and NZ day of every post already waiting or approved, so a new plan spreads around them. */
+export function busySocialSlots(approvals: ApprovalItem[], today: Date) {
+  return approvals.flatMap((a) => (a.payload.type === "social_post" && a.status !== "rejected" && new Date(a.payload.scheduledFor) > today ? [{ channel: a.payload.channel, day: nzDay(a.payload.scheduledFor) }] : []));
+}
+
+export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date, offset = 0, taken: ReadonlySet<string> = new Set(), busy: readonly { channel: string; day: string }[] = []): Draft[] {
   const { channels, postsPerRun, horizonDays } = settings.social;
   if (!channels.length || postsPerRun < 1 || horizonDays < 1) return [];
   const today = nzDay(start);
@@ -235,8 +240,10 @@ export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date
 
   // Spread the posts over the window, each on a day that suits it; tightest windows are placed first.
   const load = new Map<string, number>();
+  const slots = new Set(busy.map((b) => `${b.channel} ${b.day}`));
+  for (const { day } of busy) load.set(day, (load.get(day) ?? 0) + 1);
   const placed = chosen.map((idea, i) => ({ idea, channel: channels[(i + offset) % channels.length], target: shiftDay(today, 1 + Math.floor((i * horizonDays) / chosen.length)) }));
-  const days = new Map<Idea, string>();
+  const slot = new Map<Idea, { day: string; channel: (typeof channels)[number] }>();
   for (const { idea, channel, target } of [...placed].sort((a, b) => daysBetween(a.idea.earliest, a.idea.latest) - daysBetween(b.idea.earliest, b.idea.latest))) {
     let best = idea.earliest, bestCost = Infinity;
     for (let day = idea.earliest; day <= idea.latest; day = shiftDay(day, 1)) {
@@ -245,11 +252,15 @@ export function buildSocialDrafts(d: SocialData, settings: Settings, start: Date
       if (cost < bestCost) { best = day; bestCost = cost; }
     }
     load.set(best, (load.get(best) ?? 0) + 1);
-    days.set(idea, best);
+    // Each channel posts at one time of day, so two posts on one channel never share a day.
+    const free = slots.has(`${channel} ${best}`) ? channels.find((c) => !slots.has(`${c} ${best}`)) ?? channel : channel;
+    slots.add(`${free} ${best}`);
+    slot.set(idea, { day: best, channel: free });
   }
 
-  return placed.map(({ idea, channel }) => {
-    const when = nzTime(days.get(idea)!, channel === "LinkedIn" ? 9 : 19, 30);
+  return placed.map(({ idea }) => {
+    const { day, channel } = slot.get(idea)!;
+    const when = nzTime(day, channel === "LinkedIn" ? 9 : 19, 30);
     const asset = d.assets.find((a) => idea.skus.includes(a.productSku ?? ""));
     const noImage = asset ? undefined : idea.noImage ?? "No image picked: there is no photo of this product on SharePoint, so add one before publishing.";
     const payload: SocialPostPayload = {

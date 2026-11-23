@@ -5,7 +5,7 @@ import { savingFor } from "../savings.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
 import { buildSupplierDrafts, type Draft } from "./drafts.js";
 import { dateProblem, nzClock, nzDay, shortDay } from "./nzTime.js";
-import { EVENT_LEAD_DAYS, buildSocialDrafts, socialBrief, takenSocialTopics } from "./social.js";
+import { EVENT_LEAD_DAYS, buildSocialDrafts, busySocialSlots, socialBrief, takenSocialTopics } from "./social.js";
 
 export const AGENTS: Record<AgentId, { name: string; description: string; team: string; reads: string[]; writes: string[] }> = {
   "social-media": {
@@ -48,7 +48,7 @@ export class AgentService {
       step("Microsoft 365", "SharePoint drive", `${assets.length} brand assets`);
       const mine = this.store.state.approvals.filter((a) => a.agent === agent);
       const taken = takenSocialTopics(mine, today, settings.social.horizonDays);
-      drafts = buildSocialDrafts({ campaigns, cases, accounts, items, events, assets }, settings, today, mine.length, taken);
+      drafts = buildSocialDrafts({ campaigns, cases, accounts, items, events, assets }, settings, today, mine.length, taken, busySocialSlots(mine, today));
       step("Approvals", "Check for repeats", "Left out anything already waiting for review, approved, or decided in the last two weeks");
     } else {
       const [items, suppliers, purchaseOrders] = await Promise.all([this.connectors.inforln.listItems(), this.connectors.inforln.listSuppliers(), this.connectors.inforln.listPurchaseOrders()]);
