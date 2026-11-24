@@ -61,6 +61,34 @@ describe("key facts in an email", () => {
     expect(fact("PO50002 and PO50001: ZZ200 is ready.", "PO50001", other)).toMatchObject({ record: "another order with this supplier" });
   });
 
+  it("compares a figure with its own item and its own order", () => {
+    // Each figure belongs to the item on its side of the comma, whichever way round they are written.
+    const inline = "PO50001 confirmed: 98100: 40 units, ZZ200: 10 units.";
+    expect(fact(inline, "40 units")).toMatchObject({ about: "98100", check: "same" });
+    expect(fact(inline, "10 units")).toMatchObject({ about: "ZZ200", check: "same" });
+    const priced = "PO50001: 40 x 98100 Caro bed @ NZD 2890.00, 10 x ZZ200 @ NZD 55.50 and nothing else.";
+    expect(read(priced).facts.filter((f) => f.check !== "same")).toEqual([]);
+    expect(fact("PO50001: 98100 40 units and ZZ200 12 units.", "12 units")).toMatchObject({ about: "ZZ200", check: "differs", record: "order says 10" });
+    // Two orders in one email: what stands under the other order's number is listed but not held against this one.
+    const two = "We confirm both orders.\nPO50001:\n  40 x 98100 @ NZD 2890.00\nPO50002:\n  5 x 98100 @ NZD 2950.00, delivery on 20 December 2026\n  3 x ZZ200";
+    expect(read(two).facts.filter((f) => f.check === "differs")).toEqual([]);
+    expect(fact(two, "5")).toEqual({ kind: "quantity", text: "5" });
+    expect(fact(two, "20 December 2026")).toEqual({ kind: "date", text: "20 December 2026" });
+    expect(fact(two, "40")).toMatchObject({ check: "same" });
+    expect(read(two, other).facts.filter((f) => f.check === "differs").map((f) => f.text)).toEqual(["20 December 2026", "NZD 2950.00"]);
+    expect(fact(two, "40", other)).toEqual({ kind: "quantity", text: "40" });
+  });
+
+  it("reads what is still to come in our own emails", () => {
+    const ours = "We are still waiting on the balance of PO50001:\n\n  • 98100 Caro bed — 40 of 40 outstanding\n  • ZZ200 Castor to suit Caro bed — 6 of 10 outstanding\n\nSee page 2 of 3.";
+    expect(read(ours).facts.filter((f) => f.kind === "quantity")).toEqual([
+      { kind: "quantity", text: "40", about: "98100", check: "same", record: "the quantity ordered" },
+      { kind: "quantity", text: "6", about: "ZZ200", check: "same", record: "still to come of 10 ordered" },
+      { kind: "quantity", text: "10", about: "ZZ200", check: "same", record: "the quantity ordered" },
+    ]);
+    expect(read(ours).marks.filter((m) => m.kind === "quantity").map((m) => m.text)).toEqual(["40", "40", "6", "10"]);
+  });
+
   it("leaves alone numbers that are not facts", () => {
     const quiet = (text: string) => read(text).facts.map((f) => f.text);
     expect(quiet("Up to 12 may arrive later, within 14 days, and the top is 200 x 90 cm. Call 07 555 0199.")).toEqual([]);

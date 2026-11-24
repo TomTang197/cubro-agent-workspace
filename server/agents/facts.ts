@@ -45,6 +45,7 @@ const PRICES = [
 const COUNT = String.raw`(?:\d{1,3}(?:,\d{3})+|\d+)`;
 const UNITS = "units?|pcs|pieces?|sets?|cartons?|ctns?|boxes|box|pallets?|rolls?|pairs?|packs?|items?";
 const TIME = String.raw`(?!\s?(?:%|(?:working |business )?(?:days?|weeks?|months?|hours?|years?)\b))`;
+const DONE = "outstanding|remaining|still to come|to come|to follow|ordered|received|delivered|shipped|dispatched|supplied";
 const QUANTITIES: [RegExp, number][] = [
   // "40 x 98100", but not the first number of a size such as "200 x 90 cm". Units are lower case, so the code "576M" is not metres.
   [new RegExp(String.raw`(?<![\p{L}\p{N}.,/-])${COUNT}(?=\s?[xX×]\s)(?!\s?[xX×]\s?[\d.]+\s?(?:[xX×]\s?[\d.]+\s?)?(?:mm|cm|m|kg)\b)`, "gu"), 0],
@@ -52,6 +53,9 @@ const QUANTITIES: [RegExp, number][] = [
   [new RegExp(String.raw`(?<![\p{L}\p{N}])(?:qty|quantity)\.?(?:\s(?:of|is|was|ordered|shipped|supplied|delivered))?\s*[:=]?\s*(${COUNT})(?![\p{L}\p{N}]|[.,]\d)${TIME}`, "giu"), 1],
   [new RegExp(String.raw`(?<![\p{L}\p{N}.,/-])${COUNT}(?= of (?:the|your|our) ${COUNT}(?![\p{L}\p{N}]|[.,]\d))`, "giu"), 0],
   [new RegExp(String.raw`(?<![\p{L}\p{N}.,/-])${COUNT} of (?:the|your|our) (${COUNT})(?![\p{L}\p{N}]|[.,]\d)${TIME}`, "giu"), 1],
+  // "12 of 40 outstanding", as our own emails list what is still to come.
+  [new RegExp(String.raw`(?<![\p{L}\p{N}.,/-])${COUNT}(?= of ${COUNT} (?:${DONE})(?![\p{L}\p{N}]))`, "giu"), 0],
+  [new RegExp(String.raw`(?<![\p{L}\p{N}.,/-])${COUNT} of (${COUNT})(?= (?:${DONE})(?![\p{L}\p{N}]))`, "giu"), 1],
   [new RegExp(String.raw`(?<![\p{L}\p{N}])(?:remaining|balance of|outstanding|other|first|last|only|total of) (${COUNT})(?![\p{L}\p{N}]|[.,]\d)${TIME}`, "giu"), 1],
 ];
 const TRACKING = /(?<![\p{L}\p{N}])(?:tracking|track (?:and|&) trace|consignment|con[\s-]?note|waybill|awb|bill of lading|b\/l|container)(?:\s(?:number|no\.?|num|nr|ref(?:erence)?|id|code))?\s*(?:is|:|-)?\s*#?\s*((?=[A-Z0-9-]*\d)[A-Z0-9][A-Z0-9-]{6,}[A-Z0-9])(?![\p{L}\p{N}])/giu;
@@ -61,6 +65,8 @@ const NAMED_ORDER = new RegExp(String.raw`(?<![\p{L}\p{N}])${ORDER_WORDS}(\d{4,}
 const ARRIVES = /deliver|arriv|\bdue\b|\beta\b|receipt|receive|\bland|in stock|at (?:your|our|the) (?:warehouse|dock|door)|to tauriko|\bneed (?:this|it|them|these)\b/i;
 const LEAVES = /\bship|dispatch|despatch|\bleav|ex[\s-]?works|depart|\bsail|collect|pick(?:ed)?[\s-]?up/i;
 const PART = /\b(?:part|partial|balance|remaining|remainder|rest|back[\s-]?order(?:ed)?|first|so far|short|to follow|will follow|outstanding)\b/i;
+// What sets one item's figures apart from the next item's in a sentence.
+const APART = /[,;]|\b(?:and|but|plus)\b/i;
 const UNIT_PRICE_BEFORE = /(?:@\s*|\b(?:price|priced|cost|costs|rate|charge)\b[^.\n]{0,40})$/i, UNIT_PRICE_AFTER = /^\s?(?:each\b|ea\b|per\s|\/\s?(?:unit|ea|pc|piece))/i;
 
 const safe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -141,11 +147,16 @@ export function keyFacts(full: string, ctx: FactContext, extra: Candidate[] = []
   const orderFor = (s: Span) => ctx.orders.find((o) => o.order.toLowerCase() === word(s).toLowerCase()) ?? ctx.orders.find((o) => digits(o.order) === digits(word(s)));
   const itemFor = (s: Span) => known.get(word(s).toLowerCase()) ?? [...known.values()].find((i) => i.description.toLowerCase() === word(s).toLowerCase());
   const otherOrder = spans.some((s) => s.kind === "order" && orderFor(s)?.order !== po?.order);
+  // A fact is about the order named last before it. Under another order's number it is not compared with this one.
+  const ours = (s: Span) => { const named = spans.filter((o) => o.kind === "order" && o.end <= s.start).at(-1); return !named || orderFor(named)?.order === po?.order; };
   // The order line a quantity or a price is about: the item named in the same sentence, else the order's only line.
+  // Of the items before and after it, the one on its own side of a comma or an "and" wins: "98100: 40 units, ZZ200: 10 units".
   const lineFor = (s: Span, first: "after" | "before"): LnPurchaseOrderLine | undefined => {
     if (!po) return undefined;
     const { from, to } = sentence(text, s.start, s.end), items = spans.filter((i) => i.kind === "item" && i.start >= from && i.end <= to && itemFor(i));
-    const after = items.find((i) => i.start >= s.end), before = items.filter((i) => i.end <= s.start).at(-1), item = first === "after" ? after ?? before : before ?? after;
+    const after = items.find((i) => i.start >= s.end), before = items.filter((i) => i.end <= s.start).at(-1);
+    const apart = (i: Span) => APART.test(i.start >= s.end ? text.slice(s.end, i.start) : text.slice(i.end, s.start));
+    const [one, two] = first === "after" ? [after, before] : [before, after], item = one && two && apart(one) && !apart(two) ? two : one ?? two;
     return item ? po.lines.find((l) => l.item === itemFor(item)!.item) : items.length || po.lines.length !== 1 ? undefined : po.lines[0];
   };
   type Read = { key: string; about?: string; check?: "same" | "differs"; record?: string };
@@ -159,11 +170,12 @@ export function keyFacts(full: string, ctx: FactContext, extra: Candidate[] = []
     if (s.kind === "item") {
       const i = itemFor(s);
       if (!i) return { key: w.toLowerCase() };
+      if (!ours(s)) return { key: i.item, about: w.toLowerCase() === i.description.toLowerCase() ? i.item : i.description };
       const on = po?.lines.some((l) => l.item === i.item);
       return { key: i.item, about: w.toLowerCase() === i.description.toLowerCase() ? i.item : i.description, ...(po && on ? { check: "same", record: `on ${po.order}` } : po && !otherOrder ? { check: "differs", record: `not on ${po.order}` } : {}) };
     }
     if (s.kind === "quantity") {
-      const q = number(w), l = lineFor(s, "after");
+      const q = number(w), l = ours(s) ? lineFor(s, "after") : undefined;
       if (!l || Number.isNaN(q)) return { key: String(q) };
       const key = `${q} ${l.item}`, about = l.item, { from, to } = sentence(text, s.start, s.end);
       if (q === l.quantity) return { key, about, check: "same", record: "the quantity ordered" };
@@ -175,7 +187,7 @@ export function keyFacts(full: string, ctx: FactContext, extra: Candidate[] = []
     }
     if (s.kind === "date") {
       const day = dayOf(w, ctx.at);
-      if (!day || !po) return { key: day ?? w };
+      if (!day || !po || !ours(s)) return { key: day ?? w };
       const due = po.confirmedReceiptDate ?? po.plannedReceiptDate;
       if (day === due) return { key: day, check: "same", record: "the date the order is due" };
       if (day === po.orderDate) return { key: day, record: "the day the order was placed" };
@@ -188,7 +200,7 @@ export function keyFacts(full: string, ctx: FactContext, extra: Candidate[] = []
     }
     if (s.kind === "price") {
       const key = w.replace(/\s/g, "").toUpperCase();
-      if (!po || /%$/.test(w)) return { key };
+      if (!po || !ours(s) || /%$/.test(w)) return { key };
       const code = /NZD|AUD|USD|EUR|GBP|CNY/.exec(w)?.[0] ?? (/RMB/.test(w) ? "CNY" : /NZ\$/.test(w) ? "NZD" : /AU\$/.test(w) ? "AUD" : /US\$/.test(w) ? "USD" : w.includes("€") ? "EUR" : w.includes("£") ? "GBP" : undefined);
       if (code && code !== po.currency) return { key, check: "differs", record: `order is in ${po.currency}` };
       const amount = number(w), l = lineFor(s, "before"), about = l?.item;
