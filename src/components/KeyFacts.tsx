@@ -65,7 +65,7 @@ export function KeyFacts({ sheet, of }: { sheet?: FactSheet; of: string }) {
         {differs > 0 ? <span className="pill bad asis">{differs} {differs === 1 ? "differs" : "differ"} from {sheet.order ?? "Infor LN"}</span>
           : checked > 0 && sheet.order ? <span className="pill ok asis">Matches {sheet.order}</span> : null}</p>
       <dl>{kinds.map((k) => <div key={k}><dt>{LABEL[k]}</dt><dd><ul>{sheet.facts.filter((f) => f.kind === k).map(value)}</ul></dd></div>)}</dl>
-      <p className="small muted">Shown here only: the email itself is not changed. Each value is copied from its text{sheet.order ? ` and compared with ${sheet.order} in Infor LN (✓ matches)` : ""}{sheet.readBy ? `; ${sheet.readBy} also read it` : sheet.more ? "; the model is reading it too…" : ""}.</p>
+      <p className="small muted">Shown here only; the email itself is unchanged.{sheet.order ? ` ✓ matches ${sheet.order} in Infor LN.` : ""}{sheet.readBy ? ` Read by the rules and ${sheet.readBy}.` : sheet.more ? " The model is reading it too…" : ""}</p>
     </aside>
   );
 }
