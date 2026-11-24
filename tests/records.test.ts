@@ -142,7 +142,7 @@ describe("activity record and notifications", () => {
 
     const part = activityRecord(store.state).filter((l) => l.approvalId === draft.id);
     expect(part).toHaveLength(1);
-    expect(part[0]).toMatchObject({ actor: "Priya Raman", kind: "approved", what: draft.title, partial: true });
+    expect(part[0]).toMatchObject({ actor: "Priya Raman", kind: "part_done", what: draft.title });
     expect(part[0].went.map((w) => w.system)).toEqual(["Microsoft 365"]);
 
     fail = false;
@@ -151,7 +151,7 @@ describe("activity record and notifications", () => {
     expect(done).toHaveLength(1);
     expect(done[0].actor).toBe("Mark Jensen");
     expect(done[0].went.map((w) => w.system)).toEqual(["Microsoft 365", "ClickUp"]);
-    expect(done[0].partial).toBeUndefined();
+    expect(done[0].kind).toBe("approved");
   });
   it("records who approved a draft and which systems it went to", async () => {
     const { app, store } = setup();

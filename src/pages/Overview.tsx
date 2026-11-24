@@ -91,7 +91,7 @@ export default function Overview() {
           </section>
           <section className="card">
             <div className="row between"><h2>Latest activity</h2><Link className="small" to="/activity">See the whole record</Link></div>
-            <ul className="feed short">{(recent ?? []).slice(0, 8).map((a) => <li key={a.id}><span className="muted small">{when(a.at)}</span><span><b>{a.actor}</b> {a.kind === "approved" ? "approved" : a.kind === "sent_back" ? "sent back" : a.kind === "asked" ? "asked for drafts:" : "changed"} {a.what}{a.went.length > 0 && <span className="muted"> → {[...new Set(a.went.map((w) => w.system))].join(", ")}</span>}</span></li>)}</ul>
+            <ul className="feed short">{(recent ?? []).slice(0, 8).map((a) => <li key={a.id}><span className="muted small">{when(a.at)}</span><span><b>{a.actor}</b> {a.kind === "approved" ? "approved" : a.kind === "part_done" ? "started approving" : a.kind === "sent_back" ? "sent back" : a.kind === "asked" ? "asked for drafts:" : "changed"} {a.what}{a.went.length > 0 && <span className="muted"> → {[...new Set(a.went.map((w) => w.system))].join(", ")}</span>}</span></li>)}</ul>
           </section>
         </div>
       </div>

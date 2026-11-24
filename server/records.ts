@@ -180,7 +180,7 @@ export async function searchRecords(c: Connectors, approvals: ApprovalItem[], q:
 }
 
 /** One line of the activity record: who did what, and for an approval, which systems it went to. */
-export interface ActivityLine { id: string; at: string; actor: string; kind: "approved" | "sent_back" | "asked" | "changed" | "admin"; what: string; went: { system: string; label: string }[]; approvalId?: string; agent?: AgentId; note?: string; /** Approving began and some steps went out, but a later step failed and the draft still waits. */ partial?: boolean; }
+export interface ActivityLine { id: string; at: string; actor: string; /** `part_done`: approving began and some steps went out, but a later step failed and the draft still waits. */ kind: "approved" | "part_done" | "sent_back" | "asked" | "changed" | "admin"; what: string; went: { system: string; label: string }[]; approvalId?: string; agent?: AgentId; note?: string; }
 
 /** Where an approved draft went. Each step is recorded as it happens; sample history from before that is described by what approving that kind of draft does. */
 export function wentTo(a: ApprovalItem): { system: string; label: string }[] {
@@ -202,8 +202,8 @@ export function activityRecord(state: WorkspaceState): ActivityLine[] {
   const partDone = state.approvals.filter((a) => a.status === "pending" && a.outcome?.length).map((a): ActivityLine => {
     const last = a.outcome![a.outcome!.length - 1];
     return {
-      id: `part-${a.id}`, at: last.at ?? a.createdAt, actor: last.by ?? "Staff member", kind: "approved", what: a.title, went: wentTo(a), approvalId: a.id, agent: a.agent,
-      note: a.reviewerNote || undefined, partial: true,
+      id: `part-${a.id}`, at: last.at ?? a.createdAt, actor: last.by ?? "Staff member", kind: "part_done", what: a.title, went: wentTo(a), approvalId: a.id, agent: a.agent,
+      note: a.reviewerNote || undefined,
     };
   });
   const asked = state.runs.map((r): ActivityLine => ({ id: `run-${r.id}`, at: r.finishedAt, actor: r.triggeredBy === "Schedule" ? AGENTS[r.agent].name : r.triggeredBy, kind: "asked", what: r.summary, went: [], agent: r.agent }));
