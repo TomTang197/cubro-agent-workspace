@@ -79,7 +79,10 @@ describe("key facts in an email", () => {
     expect(fact(totalled, "NZD 116,155.00")).toMatchObject({ record: "the order total" });
     const summed = "PO50001: we will ship 40 x 98100 and 10 x ZZ200, 50 units in total.";
     expect(fact(summed, "50 units")).toEqual({ kind: "quantity", text: "50 units", check: "same", record: "the total ordered" });
-    expect(fact("PO50001: 40 x 98100 and 10 x ZZ200, a total of 45 units.", "45 units")).toEqual({ kind: "quantity", text: "45 units" });
+    expect(fact("PO50001: 40 x 98100 and 10 x ZZ200, a total of 45 units.", "45 units")).toEqual({ kind: "quantity", text: "45 units", check: "differs", record: "order totals 50" });
+    // Beside one item, a total is that item's.
+    expect(fact("PO50001: 98100: 30 units total.", "30 units")).toMatchObject({ about: "98100", check: "differs", record: "order says 40" });
+    expect(fact("PO50001: 98100: 50 units total.", "50 units")).toMatchObject({ about: "98100", check: "differs", record: "order says 40" });
     const mixed = "PO50001: 98100 is short, so we can send 30 units now and 10 units of ZZ200, at NZD 55.50 for ZZ200.";
     expect(fact(mixed, "30 units")).toEqual({ kind: "quantity", text: "30 units", about: "98100", record: "of 40 ordered" });
     expect(fact(mixed, "10 units")).toMatchObject({ about: "ZZ200", check: "same" });

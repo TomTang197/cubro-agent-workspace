@@ -179,9 +179,12 @@ export function keyFacts(full: string, ctx: FactContext, extra: Candidate[] = []
     }
     if (s.kind === "quantity") {
       const q = number(w), l = ours(s) ? lineFor(s) : undefined, around = sentence(text, s.start, s.end);
-      // "50 units in total" is every line together, not the item named beside it.
-      if (po && ours(s) && po.lines.length > 1 && /\b(?:total|altogether|in all|combined)\b/i.test(text.slice(Math.max(around.from, s.start - 12), Math.min(around.to, s.end + 14))))
-        return { key: `${q} total`, ...(q === po.lines.reduce((sum, x) => sum + x.quantity, 0) && { check: "same" as const, record: "the total ordered" }) };
+      // "40 x 98100 and 10 x ZZ200, 50 units in total" is every line together. Beside a single item ("98100: 30 units total") it is that item's.
+      const named = new Set(spans.filter((i) => i.kind === "item" && i.start >= around.from && i.end <= around.to && itemFor(i)).map((i) => itemFor(i)!.item)).size;
+      if (po && ours(s) && po.lines.length > 1 && named !== 1 && /\b(?:total|altogether|in all|combined)\b/i.test(text.slice(Math.max(around.from, s.start - 12), Math.min(around.to, s.end + 14)))) {
+        const all = po.lines.reduce((sum, x) => sum + x.quantity, 0);
+        return { key: `${q} total`, ...(q === all ? { check: "same", record: "the total ordered" } : { check: "differs", record: `order totals ${all}` }) };
+      }
       if (!l || Number.isNaN(q)) return { key: String(q) };
       const key = `${q} ${l.item}`, about = l.item, { from, to } = sentence(text, s.start, s.end);
       if (q === l.quantity) return { key, about, check: "same", record: "the quantity ordered" };
