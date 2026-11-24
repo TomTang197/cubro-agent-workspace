@@ -90,7 +90,7 @@ export async function recordDetail(c: Connectors, approvals: ApprovalItem[], kin
   const { sort: _sort, ...base } = row;
   const byRow = (k: RecordKind, ids: string[]): LinkedItem[] => rows(d, today).filter((r) => r.kind === k && ids.includes(r.id)).map((r) => ({ kind: r.kind, id: r.id, title: r.title, subtitle: r.subtitle, status: r.status }));
   const mailAbout = (words: string[], addresses: string[] = []) => newest(d.messages.filter((m) => addresses.some((a) => a && (m.from.address === a || m.to.some((t) => t.address === a))) || words.some((w) => mentions(`${m.subject} ${m.body}`, w))), (m) => m.receivedDateTime).map(mailItem);
-  const tasksAbout = (words: string[]) => d.tasks.filter((t) => words.some((w) => mentions(`${t.name} ${t.description}`, w))).slice(0, 8).map(taskItem);
+  const tasksAbout = (words: string[], not?: Set<ClickUpTask>) => d.tasks.filter((t) => !not?.has(t) && words.some((w) => mentions(`${t.name} ${t.description}`, w))).slice(0, 8).map(taskItem);
   const links: RecordDetail["links"] = [];
   const link = (label: string, system: string, items: LinkedItem[]) => { if (items.length) links.push({ label, system, items }); };
   let fields: RecordDetail["fields"] = [];
@@ -136,7 +136,12 @@ export async function recordDetail(c: Connectors, approvals: ApprovalItem[], kin
     link("Logged activity", "Salesforce", newest(d.activities.filter((x) => about.has(x.WhatId)), (x) => x.CreatedDate).map((x) => ({ title: x.Subject, subtitle: shortDate(x.CreatedDate) })));
     link("Emails", "Microsoft 365", mailAbout([a.Name], contacts.map((x) => x.Email)));
     // A task names the deal it is for, which often shortens the customer's name, or quotes its Salesforce id.
-    link("Tasks", "ClickUp", tasksAbout([a.Name, ...opps.flatMap((o) => [o.Name, o.Id])]));
+    // A quoted id settles whose task it is; a deal name another customer's deal also has does not.
+    const others = d.opportunities.filter((o) => o.AccountId !== id);
+    const ownNames = opps.map((o) => o.Name).filter((n) => !others.some((o) => o.Name === n));
+    const taskText = (t: ClickUpTask) => `${t.name} ${t.description}`;
+    const theirs = new Set(d.tasks.filter((t) => !opps.some((o) => mentions(taskText(t), o.Id)) && others.some((o) => mentions(taskText(t), o.Id))));
+    link("Tasks", "ClickUp", tasksAbout([a.Name, ...ownNames, ...opps.map((o) => o.Id)], theirs));
     link("Products they asked about", "Infor LN", byRow("product", [...new Set([...opps.flatMap((o) => o.ProductSkus), ...cases.map((x) => x.ProductSku)])]).slice(0, 8));
   } else {
     const i = d.items.find((x) => x.item === id)!;

@@ -123,6 +123,22 @@ describe("records and what links them", () => {
     const d: RecordDetail = (await request(app).get(`/api/records/customer/${opp.AccountId}`).expect(200)).body;
     expect(group(d, "Tasks")!.items.some((t) => t.title === "Prepare quote")).toBe(true);
   });
+  it("gives a task that quotes one deal's Salesforce id to that customer only, when two customers' deals share a name", async () => {
+    const { app, store } = setup();
+    const s = store.state.systems;
+    const [mine, other] = [s.salesforce.opportunities[0], s.salesforce.opportunities.find((o) => o.AccountId !== s.salesforce.opportunities[0].AccountId)!];
+    mine.Name = other.Name = "Bed replacement programme";
+    s.clickup.tasks.unshift(
+      { ...s.clickup.tasks[0], id: "t-id", name: "Prepare quote — Bed replacement programme", description: `Salesforce opportunity ${mine.Id}.` },
+      { ...s.clickup.tasks[0], id: "t-name", name: "Book discovery visit — Bed replacement programme", description: "" },
+    );
+    const tasks = async (account: string) => (group((await request(app).get(`/api/records/customer/${account}`).expect(200)).body, "Tasks")?.items ?? []).map((t) => t.title);
+    expect(await tasks(mine.AccountId)).toContain("Prepare quote — Bed replacement programme");
+    expect(await tasks(other.AccountId)).not.toContain("Prepare quote — Bed replacement programme");
+    // With no id to go on, a name both customers' deals have says nothing about whose task it is.
+    expect(await tasks(mine.AccountId)).not.toContain("Book discovery visit — Bed replacement programme");
+    expect(await tasks(other.AccountId)).not.toContain("Book discovery visit — Bed replacement programme");
+  });
   it("says so when a record is not there", async () => {
     const { app } = setup();
     expect((await request(app).get("/api/records/supplier/SUP0000").expect(404)).body.error).toMatch(/not in the connected systems/);
