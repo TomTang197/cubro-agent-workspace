@@ -118,9 +118,11 @@ export class AgentService {
     const supplier = suppliers.find((s) => (message ? s.email.toLowerCase() === message.from.address.toLowerCase() : s.supplier === (named?.supplier ?? q.supplier)));
     if (!supplier) throw new HttpError(message ? 400 : 404, message ? `${message.from.name || message.from.address} is not a supplier in Infor LN, so this email cannot be answered from here.` : "That supplier is not in Infor LN.");
     if (!supplier.email) throw new HttpError(400, `${supplier.name} has no email address in Infor LN.`);
-    if (named && named.supplier !== supplier.supplier) throw new HttpError(400, `${named.order} was not placed with ${supplier.name}.`);
+    // A reply opened from another supplier's order is still a reply to the supplier who wrote: that order is left out.
+    const theirs = named?.supplier === supplier.supplier ? named : undefined;
+    if (named && !theirs && !message) throw new HttpError(400, `${named.order} was not placed with ${supplier.name}.`);
     const orders = purchaseOrders.filter((po) => po.supplier === supplier.supplier);
-    return { supplier, order: named ?? (message ? orderIn(message, orders) : undefined), message, orders, items, today: this.now() };
+    return { supplier, order: theirs ?? (message ? orderIn(message, orders) : undefined), message, orders, items, today: this.now() };
   }
 
   /** Everything the writing page shows before anything is picked. */

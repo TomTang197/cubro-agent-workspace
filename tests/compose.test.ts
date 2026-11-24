@@ -1,6 +1,6 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { composeBody, composeParts, emailOptions, emailTopic, revisedDate, tidyOwnLine, type ComposeInput } from "../server/agents/compose";
+import { composeBody, composeParts, emailOptions, emailTopic, orderIn, revisedDate, tidyOwnLine, type ComposeInput } from "../server/agents/compose";
 import { createApp } from "../server/app";
 import type { LnPurchaseOrder, MailMessage } from "../server/connectors/types";
 import { templateProvider, type LlmProvider } from "../server/llm";
@@ -73,6 +73,15 @@ describe("what a supplier email can say", () => {
 
     expect(emailTopic({ subject: "Christmas and New Year closure", body: "We close on 23 December and reopen on 11 January." })).toBe("closure");
     expect(emailTopic({ subject: "Hello", body: "Do you have a new catalogue?" })).toBe("other");
+  });
+
+  it("finds the order a supplier's email is about, with or without the PO prefix", () => {
+    const { store } = setup();
+    const [a, b] = ln(store).purchaseOrders, digits = a.order.replace(/^\D+/, "");
+    expect(orderIn({ subject: `Your order ${digits}`, body: "It ships next week." }, [a, b])).toBe(a);
+    expect(orderIn({ subject: "Update", body: `Regarding ${b.order.toLowerCase()} and ${a.order}.` }, [a, b])).toBe(b);
+    // A longer number that only contains the digits is another number.
+    expect(orderIn({ subject: "Invoice", body: `Invoice 9${digits}7 attached.` }, [a, b])).toBeUndefined();
   });
 
   it("offers what the supplier's record suggests when no order is picked", () => {
@@ -174,6 +183,14 @@ describe("writing a supplier email from the options", () => {
     // The order is found from the email itself.
     expect(delay.subject).toContain(shown.order.id);
     expect(shown.subject).toBe(delay.subject);
+
+    // Their price notice names no order, so the writer can say which one the reply is about; another supplier's order is not taken.
+    const price = fromSupplier(store, (m) => /^Price list effective/.test(m.subject));
+    const own = ln(store).purchaseOrders.find((o) => o.status === "Confirmed" && ln(store).suppliers.find((s) => s.supplier === o.supplier)!.email === price.from.address);
+    const other = ln(store).purchaseOrders.find((o) => ln(store).suppliers.find((s) => s.supplier === o.supplier)!.email !== price.from.address)!;
+    expect((await request(app).get(`/api/supplier-emails/options?reply=${price.id}`).expect(200)).body.order).toBeUndefined();
+    expect((await request(app).get(`/api/supplier-emails/options?reply=${price.id}&order=${other.order}`).expect(200)).body.order).toBeUndefined();
+    if (own) expect((await request(app).get(`/api/supplier-emails/options?reply=${price.id}&order=${own.order}`).expect(200)).body.order.id).toBe(own.order);
 
     const item = (await request(app).post("/api/supplier-emails").send({ user: "Priya Raman", reply: delay.id, options: ["accept-date"] }).expect(200)).body as ApprovalItem;
     const p = item.payload as SupplierEmailPayload;

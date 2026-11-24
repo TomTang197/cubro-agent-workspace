@@ -25,7 +25,7 @@ export default function Write() {
       </section>}
       {query && error && <div className="error">{error} <Link to="/write">Pick a supplier instead</Link></div>}
       {query && !error && !shown && <p className="muted">Reading the order and the supplier's emails…</p>}
-      {shown && <Composer key={query} data={shown} about={about} onOrder={(order) => go({ supplier: shown.supplier.id, order })} />}
+      {shown && <Composer key={query} data={shown} about={about} onOrder={(order) => go(about.reply ? { reply: about.reply, order } : { supplier: shown.supplier.id, order })} />}
     </>
   );
 }
@@ -55,9 +55,7 @@ function Composer({ data, about, onOrder }: { data: Compose; about: { supplier: 
         <div className="meta-grid">
           <div><span>To</span><b>{data.to.name} &lt;{data.to.address}&gt;</b></div>
           <div><span>Supplier</span><b><RecordLink kind="supplier" id={data.supplier.id}>{data.supplier.name}</RecordLink>{!data.replyTo && <> · <Link to="/write">change</Link></>}</b></div>
-          <div><span>Purchase order</span>{data.replyTo
-            ? <b>{data.order ? <RecordLink kind="order" id={data.order.id}>{data.order.id}</RecordLink> : "None named in their email"}</b>
-            : <select aria-label="Purchase order" value={data.order?.id ?? ""} disabled={!empty} title={empty ? undefined : "Take out what you picked to change the order"} onChange={(e) => onOrder(e.target.value)}><option value="">No particular order</option>{data.orders.map((o) => <option key={o.id} value={o.id}>{o.id} · {o.status}</option>)}{data.order && !data.orders.some((o) => o.id === data.order!.id) && <option value={data.order.id}>{data.order.id} · {data.order.status}</option>}</select>}</div>
+          <div><span>Purchase order</span><select aria-label="Purchase order" value={data.order?.id ?? ""} disabled={!empty} title={empty ? undefined : "Take out what you picked to change the order"} onChange={(e) => onOrder(e.target.value)}><option value="">{data.replyTo ? "The one their email names, if any" : "No particular order"}</option>{data.orders.map((o) => <option key={o.id} value={o.id}>{o.id} · {o.status}</option>)}{data.order && !data.orders.some((o) => o.id === data.order!.id) && <option value={data.order.id}>{data.order.id} · {data.order.status}</option>}</select></div>
         </div>
         {data.replyTo && <details className="quoted" open><summary>{data.replyTo.from} wrote on {day(data.replyTo.receivedDateTime)}: {data.replyTo.subject}</summary><div className="letter-body">{data.replyTo.body}</div></details>}
         {data.waiting && <div className="banner" role="status">A draft about this is already waiting to be checked: <Link to={`/approvals/${data.waiting.id}?agent=supplier-outreach`}>{data.waiting.title}</Link>. You can add to that one instead of writing another.</div>}

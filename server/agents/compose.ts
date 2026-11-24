@@ -38,8 +38,16 @@ export function revisedDate(text: string): string | undefined {
   return named ?? (all.length === 1 ? all[0] : undefined);
 }
 
-/** The order a supplier's email is about: the first of this supplier's order numbers it names. */
-export const orderIn = (m: Pick<MailMessage, "subject" | "body">, orders: LnPurchaseOrder[]) => (`${m.subject} ${m.body}`.match(/PO\d+/g) ?? []).map((n) => orders.find((po) => po.order === n)).find(Boolean);
+/** The order a supplier's email is about: the first of this supplier's orders it names, by its full number or by the digits alone (PO41711 or 41711). */
+export function orderIn(m: Pick<MailMessage, "subject" | "body">, orders: LnPurchaseOrder[]) {
+  const text = `${m.subject} ${m.body}`, safe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const at = (po: LnPurchaseOrder) => {
+    const digits = po.order.replace(/^\D+/, "");
+    const names = [po.order, ...(digits.length >= 4 && digits !== po.order ? [digits] : [])].map(safe).join("|");
+    return new RegExp(`(?<![\\p{L}\\p{N}])(?:${names})(?![\\p{L}\\p{N}])`, "iu").exec(text)?.index ?? -1;
+  };
+  return orders.map((po) => ({ po, i: at(po) })).filter((x) => x.i >= 0).sort((a, b) => a.i - b.i)[0]?.po;
+}
 
 /** The things this email could say, from the supplier's email being answered, the order and the supplier's record. */
 export function emailOptions({ supplier: s, order: po, message: m, orders, items, today }: ComposeInput): EmailOption[] {
