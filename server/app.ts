@@ -10,6 +10,7 @@ import { createConnectors, isLive, workspacePassword } from "./connectors/index.
 import type { SfObjects, SystemId } from "./connectors/types.js";
 import { addDays, isoDate } from "./data/rng.js";
 import { createLlm, type LlmProvider } from "./llm/index.js";
+import { activityRecord, isRecordKind, listRecords, notificationsFor, recordDetail, searchRecords } from "./records.js";
 import { AGENT_IDS, EDIT_MINUTES, nzDate, periodStart, summarise, weekStart } from "./savings.js";
 import { mergeSettings, validateSettings } from "./settings.js";
 import type { AgentId, Store } from "./store.js";
@@ -120,6 +121,17 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
     };
   }));
   api.get("/activity", wrap(() => store.state.activity));
+  // Who approved what, and which systems each approval went to.
+  api.get("/activity/record", wrap(() => activityRecord(store.state)));
+  api.get("/notifications", wrap((req) => notificationsFor(store.state, user(req), agentId(String(req.query.agent ?? "")), opts.now?.())));
+  api.get("/search", wrap((req) => searchRecords(connectors, store.state.approvals, String(req.query.q ?? ""), opts.now?.())));
+  const recordKind = (s: string) => { if (!isRecordKind(s)) throw new HttpError(404, "Unknown kind of record"); return s; };
+  api.get("/records/:kind", wrap((req) => listRecords(connectors, recordKind(req.params.kind), opts.now?.())));
+  api.get("/records/:kind/:id", wrap(async (req) => {
+    const found = await recordDetail(connectors, store.state.approvals, recordKind(req.params.kind), req.params.id, opts.now?.());
+    if (!found) throw new HttpError(404, "That record is not in the connected systems any more.");
+    return found;
+  }));
 
   api.get("/settings", wrap(() => store.state.settings));
   api.put("/settings", wrap((req) => {
