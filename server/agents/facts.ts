@@ -178,7 +178,10 @@ export function keyFacts(full: string, ctx: FactContext, extra: Candidate[] = []
       return { key: i.item, about: w.toLowerCase() === i.description.toLowerCase() ? i.item : i.description, ...(po && on ? { check: "same", record: `on ${po.order}` } : po && !otherOrder ? { check: "differs", record: `not on ${po.order}` } : {}) };
     }
     if (s.kind === "quantity") {
-      const q = number(w), l = ours(s) ? lineFor(s) : undefined;
+      const q = number(w), l = ours(s) ? lineFor(s) : undefined, around = sentence(text, s.start, s.end);
+      // "50 units in total" is every line together, not the item named beside it.
+      if (po && ours(s) && po.lines.length > 1 && /\b(?:total|altogether|in all|combined)\b/i.test(text.slice(Math.max(around.from, s.start - 12), Math.min(around.to, s.end + 14))))
+        return { key: `${q} total`, ...(q === po.lines.reduce((sum, x) => sum + x.quantity, 0) && { check: "same" as const, record: "the total ordered" }) };
       if (!l || Number.isNaN(q)) return { key: String(q) };
       const key = `${q} ${l.item}`, about = l.item, { from, to } = sentence(text, s.start, s.end);
       if (q === l.quantity) return { key, about, check: "same", record: "the quantity ordered" };
