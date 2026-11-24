@@ -188,7 +188,7 @@ function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDe
   // A draft is read first; its fields open only when someone chooses to change it.
   const [changing, setChanging] = useState(!!restore?.edits);
   // The numbers in the draft as it reads now, and in the email it answers, picked out for the reader. What is sent stays plain text.
-  const facts = useFacts<{ draft: FactSheet; inReplyTo?: FactSheet }>(p.type === "supplier_email" ? `${item.id}\n${subject}\n${text}` : null,
+  const facts = useFacts<{ draft: FactSheet; inReplyTo?: FactSheet }>(p.type === "supplier_email" && item.status === "pending" ? `${item.id}\n${subject}\n${text}` : null,
     (quick) => api(`/approvals/${item.id}/facts`, { method: "POST", body: { subject, body: text, quick } }), (f) => !!f.inReplyTo?.more);
   const pending = item.status === "pending";
   const [social, setSocial] = useState(p.type === "social_post" ? restore?.edits?.social ?? socialEdits(p) : undefined);
@@ -257,6 +257,8 @@ function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDe
           <label className="field"><span>Email</span>
             <textarea rows={14} value={text} disabled={!pending} onChange={(e) => setText(e.target.value)} /></label>
         )}
+        {/* While it is being changed the email is in a text box, which cannot be highlighted, so its facts are listed under it. */}
+        <KeyFacts sheet={facts?.draft} of="this draft" />
       </>}
       {lateReplyBy && <div className="error" role="alert">This email asks for a reply by {lateReplyBy}, which has passed. {started ? "It is already saved as a draft in the purchasing mailbox, so it cannot be changed here. Change the date in that draft first, or send it as it is." : "Change the date before you send it."}</div>}
       {pending && !started && signOff && signedBy && signedBy !== me && <p className="small sign-note">This email is signed <b>{signedBy}</b>, {item.writtenBy === signedBy ? "who wrote it" : "the name the assistant puts on every supplier email"}, and you are approving as <b>{me}</b>. <button type="button" className="link" onClick={signAsMe}>Sign it as {me} instead</button></p>}
