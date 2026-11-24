@@ -117,6 +117,9 @@ describe("what a supplier email can say", () => {
     // A confirmation is of the order, now: something still to be confirmed is not one.
     expect(emailTopic({ subject: "RE: Purchase order PO41694 — Cubro Ltd", body: "Thank you for the order. We confirm PO41694 at the prices shown." })).toBe("confirmed");
     expect(emailTopic({ subject: "RE: Purchase order PO41694 — Cubro Ltd", body: "We are pleased to confirm your purchase order." })).toBe("confirmed");
+    expect(emailTopic({ subject: "Order", body: "We confirm the attached purchase order." })).toBe("confirmed");
+    expect(emailTopic({ subject: "Order", body: "We hereby confirm receipt of your new order." })).toBe("confirmed");
+    expect(emailTopic({ subject: "Artwork", body: "We confirm the artwork for your order is at the printer." })).toBe("other");
     expect(emailTopic({ subject: "Artwork", body: "We will start the run once we confirm the artwork. Please send the final file." })).toBe("other");
     expect(emailTopic({ subject: "PO41694", body: "We will send a ship date once the order is confirmed by our factory." })).toBe("other");
   });

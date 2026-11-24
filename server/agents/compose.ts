@@ -26,7 +26,7 @@ export function emailTopic(m: Pick<MailMessage, "subject" | "body">): "delay" | 
   if (/prices? (will|are going to) (rise|increase|go up)|price (increase|list|rise)/.test(t)) return "price";
   if (/closure|will close|we close|closed (for|from)|reopen/.test(t)) return "closure";
   // "We confirm PO41694", not "once we confirm the artwork": only the order itself, confirmed now.
-  if (/(?<!\b(?:once|when|after|until|before|if|unless|can|could|will|cannot|can't) )we (?:hereby |are pleased to )?confirm (?:receipt of )?(?:your |the |this )?(?:purchase )?(?:order\b|po ?\d)|(?<!\b(?:once|when|after|until|before|if|unless) (?:your |the |this )?(?:purchase )?)order (?:is )?confirmed|thank you for (?:the|your) order/.test(t)) return "confirmed";
+  if (/(?<!\b(?:once|when|after|until|before|if|unless|can|could|will|cannot|can't) )we (?:hereby |are pleased to )?confirm (?:(?:receipt|acceptance) of )?(?:(?:your|the|this|attached|enclosed|above|following|new) ){0,3}(?:purchase )?(?:order\b|po ?\d)|(?<!\b(?:once|when|after|until|before|if|unless) (?:your |the |this )?(?:purchase )?)order (?:is )?confirmed|thank you for (?:the|your) order/.test(t)) return "confirmed";
   return "other";
 }
 
