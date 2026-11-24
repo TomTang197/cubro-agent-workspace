@@ -1,7 +1,8 @@
 import type { AgentRun, ApprovalItem, SavingsEntry, Settings, ActivityEntry, AgentId } from "../server/store";
 import type { ConnectorStatus } from "../server/connectors/types";
 import type { SavingsLine } from "../server/savings";
-export type { AgentRun, ApprovalItem, SavingsEntry, Settings, ActivityEntry, AgentId, ConnectorStatus, SavingsLine };
+import type { ActivityLine, LinkedItem, Notice, RecordDetail, RecordKind, RecordRow, SearchHit } from "../server/records";
+export type { AgentRun, ApprovalItem, SavingsEntry, Settings, ActivityEntry, AgentId, ConnectorStatus, SavingsLine, ActivityLine, LinkedItem, Notice, RecordDetail, RecordKind, RecordRow, SearchHit };
 
 let currentUser = localStorage.getItem("cubro-user") ?? "Aroha Ngata";
 export const getUser = () => currentUser;
@@ -72,3 +73,13 @@ export async function restartDemo() {
   guideSeen.set(false);
 }
 export const adminMenu = flag("cubro-admin");
+
+/** The records staff look up, in the words the menu and search use. */
+export const RECORD_KINDS: { kind: RecordKind; label: string; one: string }[] = [
+  { kind: "supplier", label: "Suppliers", one: "Supplier" },
+  { kind: "order", label: "Purchase orders", one: "Purchase order" },
+  { kind: "customer", label: "Customers", one: "Customer" },
+  { kind: "product", label: "Products", one: "Product" },
+];
+/** Pages scroll inside the workspace frame, not the window. */
+export const scrollToTop = () => document.querySelector(".content")?.scrollTo(0, 0);

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { fromNzInput, nzDay, shortDay } from "../../server/agents/nzTime";
-import { AGENT_NAMES, DRAFT_NOUN, RESTART, STATUS_LABEL, TEAMS, agentFor, api, getUser, teamOf, todayNz, weekday, when, type AgentId, type ApprovalItem } from "../api";
+import { AGENT_NAMES, DRAFT_NOUN, RESTART, STATUS_LABEL, TEAMS, agentFor, api, getUser, scrollToTop, teamOf, todayNz, weekday, when, type AgentId, type ApprovalItem } from "../api";
+import { RecordLink } from "../components/Record";
+import { askBeforeLeaving, mayLeave } from "../leaving";
 
 const AGENT_TEAM: Record<AgentId, string> = { "social-media": "Marketing", "supplier-outreach": "Purchasing" };
 import { useApi } from "../useApi";
@@ -25,6 +27,7 @@ export default function Approvals() {
   // With nothing asked for, a person gets their own team's drafts; a link to one draft works whoever opens it.
   const agent = agentParam === "all" ? "" : agentParam ?? (focus && !id ? agentFor(me) : "");
   const [q, setQ] = useState("");
+  const [sort, setSort] = useState("newest");
   const { data, error, reload } = useApi<ApprovalItem[]>(`/approvals?status=${status}${agent ? `&agent=${agent}` : ""}`);
   // A decision is sent on seconds after it was made, so it reloads whichever queue is on screen by then.
   const reloadNow = useRef(reload);
@@ -46,7 +49,14 @@ export default function Approvals() {
   const take = (draft: string) => (restore.current?.id === draft ? restore.current : undefined);
   const waiting = (data ?? []).filter((a) => !(a.status === "pending" && decided.includes(a.id)));
   const filtered = waiting.filter((a) => focus || !q || a.title.toLowerCase().includes(q.toLowerCase()) || (dirty.current && a.id === editing.current));
-  const list = focus ? [...filtered].sort((a, b) => Number(b.priority === "high") - Number(a.priority === "high")) : filtered;
+  const urgentFirst = (a: ApprovalItem, b: ApprovalItem) => Number(b.priority === "high") - Number(a.priority === "high");
+  const SORTS: Record<string, (a: ApprovalItem, b: ApprovalItem) => number> = {
+    newest: (a, b) => (b.decidedAt ?? b.createdAt).localeCompare(a.decidedAt ?? a.createdAt),
+    oldest: (a, b) => (a.decidedAt ?? a.createdAt).localeCompare(b.decidedAt ?? b.createdAt),
+    urgent: urgentFirst,
+    name: (a, b) => a.title.localeCompare(b.title),
+  };
+  const list = [...filtered].sort(focus ? urgentFirst : SORTS[sort] ?? SORTS.newest);
   const selected = list.find((a) => a.id === id) ?? (id && !focus ? undefined : (dirty.current ? list.find((a) => a.id === editing.current) : undefined) ?? list[0]);
   editing.current = selected?.id;
   const at = selected ? list.findIndex((x) => x.id === selected.id) : -1;
@@ -57,6 +67,18 @@ export default function Approvals() {
   // A draft decided under one team can be reopened after the reviewer has switched to the other, so its link names its own team.
   const queueOf = (a: ApprovalItem) => (agent && agent !== a.agent ? a.agent : agent || "all");
   const guard = (e: { preventDefault: () => void }) => { if (keepEdits()) e.preventDefault(); };
+  // Links outside this page (the record panel's linked drafts, notifications, the menu) and the search would otherwise drop the edits without asking.
+  useEffect(() => {
+    askBeforeLeaving(keepEdits);
+    const ask = (e: MouseEvent) => {
+      const link = (e.target as Element).closest?.("a[href]");
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      if (!link || link.getAttribute("target") === "_blank" || link.closest("main")) return; // links on this page ask for themselves
+      if (!mayLeave(link.getAttribute("href")!)) { e.preventDefault(); e.stopPropagation(); }
+    };
+    document.addEventListener("click", ask, true);
+    return () => { askBeforeLeaving(); document.removeEventListener("click", ask, true); };
+  }, []);
 
   async function commit(h: Held, keepalive = false) {
     try { setDone(await api<ApprovalItem>(`/approvals/${h.item.id}/${h.kind}`, { method: "POST", body: { note: h.note, user: h.by, ...(h.changes && { payload: h.changes.patch }) }, keepalive })); }
@@ -99,7 +121,7 @@ export default function Approvals() {
 
   useEffect(() => { if (restore.current?.id === selected?.id) restore.current = undefined; }, [selected?.id]);
   // The next draft opens at its top, not wherever the last one was scrolled to.
-  useEffect(() => { if (focus) window.scrollTo(0, 0); }, [focus, selected?.id]);
+  useEffect(() => { if (focus) scrollToTop(); }, [focus, selected?.id]);
 
   const scope = agent ? `${teamOf(me) === AGENT_TEAM[agent as AgentId] ? "your team's" : `${AGENT_TEAM[agent as AgentId]}'s`} ${DRAFT_NOUN[agent as AgentId][1]}` : "both teams' drafts";
   const heldWhat = held && (held.kind === "reject" ? "Sent back. Nothing will go out." : held.item.outcome?.length ? "Approved. The rest is finished in a few seconds." : held.item.payload.type === "supplier_email" ? `Approved. The email goes to ${held.item.payload.to.name} in a few seconds.` : "Approved. The team is told in a few seconds.");
@@ -109,7 +131,8 @@ export default function Approvals() {
       <div className="toolbar">
         {!focus && <div className="seg">{(["pending", "approved", "rejected", "all"] as const).map((s) => <button key={s} className={status === s ? "on" : ""} onClick={() => set({ status: s === "pending" ? "" : s, view: "list" })}>{s === "all" ? "All" : STATUS_LABEL[s]}</button>)}</div>}
         <select aria-label="Whose drafts" value={agent} onChange={(e) => set({ agent: e.target.value || "all" })}><option value="">Both teams' drafts</option><option value="social-media">Marketing: social posts</option><option value="supplier-outreach">Purchasing: supplier emails</option></select>
-        {!focus && <input placeholder="Search drafts" value={q} onChange={(e) => setQ(e.target.value)} />}
+        {!focus && <input type="search" placeholder="Find a draft" aria-label="Find a draft" value={q} onChange={(e) => setQ(e.target.value)} />}
+        {!focus && <label className="sort"><span className="small muted">Sort by</span><select aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="urgent">Urgent first</option><option value="name">Name, A to Z</option></select></label>}
         {focus && list.length > 0 && <span className="queue-at"><b>Draft {at + 1} of {list.length}</b>
           {list.length > 1 && <span className="row gap">{at > 0 && <Link to={`/approvals/${list[at - 1].id}${qs}`} onClick={guard}>‹ Previous</Link>}{at < list.length - 1 && <Link to={`/approvals/${list[at + 1].id}${qs}`} onClick={guard}>Skip for now ›</Link>}</span>}</span>}
         {focus ? <Link className="to-list" to={`/approvals${query({ view: "list" })}`} onClick={guard}>See them as a list, with what was already decided</Link>
@@ -197,9 +220,9 @@ function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDe
       ) : (
         <div className="meta-grid">
           <div><span>To</span><b>{p.to.name} &lt;{p.to.address}&gt;</b></div>
-          <div><span>Supplier</span><b>{p.supplierName} ({p.supplierId})</b></div>
+          <div><span>Supplier</span><b><RecordLink kind="supplier" id={p.supplierId}>{p.supplierName}</RecordLink> ({p.supplierId})</b></div>
           <div><span>Reason</span><b>{{ overdue: "Overdue order", unconfirmed: "Unconfirmed order", low_stock: "Low stock", partial: "Partial delivery" }[p.reason]}</b></div>
-          {p.purchaseOrder ? <div><span>Purchase order</span><b>{p.purchaseOrder}</b></div> : <div><span>Items</span><b>{p.items.join(", ")}</b></div>}
+          {p.purchaseOrder ? <div><span>Purchase order</span><b><RecordLink kind="order" id={p.purchaseOrder}>{p.purchaseOrder}</RecordLink></b></div> : <div><span>Items</span><b>{p.items.map((code, i) => <span key={code}>{i > 0 && ", "}<RecordLink kind="product" id={code}>{code}</RecordLink></span>)}</b></div>}
         </div>
       )}
       {pending && (!changing || started) ? (

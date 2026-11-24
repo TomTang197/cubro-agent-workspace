@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
-import { NavLink, useParams } from "react-router-dom";
-import { api, day, nzd, when, type ConnectorStatus } from "../api";
+import { NavLink, useNavigate, useParams } from "react-router-dom";
+import { api, day, nzd, when, type ConnectorStatus, type RecordKind } from "../api";
+import { useRecordLink } from "../components/Record";
 import { useApi } from "../useApi";
 
 type Row = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -14,6 +15,12 @@ const list = (v: unknown) => (Array.isArray(v) ? v.join(", ") : "") || "—";
 const pill = (text: string, tone = "") => <span className={`pill ${tone}`}>{text}</span>;
 const STATUS_TONE: Record<string, string> = { complete: "ok", Closed: "ok", Received: "ok", "Closed Won": "ok", Completed: "ok", "Closed Lost": "bad", Complaint: "bad", urgent: "bad", review: "warn", "Partially received": "warn", high: "warn" };
 const status = (s?: string) => (s ? pill(s, STATUS_TONE[s] ?? "") : "—");
+
+/** The tables whose rows are records staff look up: clicking one opens it on the right with what the other systems hold. */
+const OPENS: Partial<Record<string, (r: Row) => [RecordKind, string]>> = {
+  "inforln/suppliers": (r) => ["supplier", r.supplier], "inforln/purchase-orders": (r) => ["order", r.order],
+  "inforln/items": (r) => ["product", r.item], "salesforce/accounts": (r) => ["customer", r.Id],
+};
 
 const RESOURCES: Record<string, Resource[]> = {
   m365: [
@@ -51,19 +58,21 @@ const missing = (s: ConnectorStatus) => s.settings.filter((x) => x.required && !
 function Records({ res, names }: { res: Resource; names: Names }) {
   const { data, error, loading, reload } = useApi<Row[]>(`/systems/${res.path}`);
   const [q, setQ] = useState("");
+  const nav = useNavigate(), recordLink = useRecordLink(), opens = OPENS[res.path];
   // Search looks at what each row shows (a supplier's name, a formatted date) as well as the record behind it (codes, email bodies).
   const rows = useMemo(() => (Array.isArray(data) ? data : []).filter((r) => !q || `${res.cols.map((c) => textOf(cell(c, r, names))).join(" ")} ${JSON.stringify(r)}`.toLowerCase().includes(q.trim().toLowerCase())), [data, q, res, names]);
   return (
     <>
       <div className="toolbar">
         <input placeholder={`Search ${res.noun}`} aria-label={`Search ${res.noun}`} value={q} onChange={(e) => setQ(e.target.value)} />
+        {opens && <span className="small muted">Click a row to open it with its linked records.</span>}
         {data && <span className="small muted">{rows.length > MAX_ROWS ? `Showing the first ${MAX_ROWS} of ${rows.length} ${res.noun}` : `${rows.length} ${res.noun}`}</span>}
       </div>
       {error ? <div className="error">Could not load {res.noun}. {error} <button onClick={reload}>Try again</button></div>
         : !data && loading ? <p className="muted">Loading {res.noun}…</p>
         : <section className="card flush scroll">
             <table className="table"><thead><tr>{res.cols.map((c) => <th key={c.h} className={c.num ? "num" : ""}>{c.h}</th>)}</tr></thead>
-              <tbody>{rows.slice(0, MAX_ROWS).map((r, i) => <tr key={i}>{res.cols.map((c) => <td key={c.h} className={c.num ? "num" : ""}>{cell(c, r, names)}</td>)}</tr>)}
+              <tbody>{rows.slice(0, MAX_ROWS).map((r, i) => <tr key={i} {...(opens && { className: "go", tabIndex: 0, title: "Open this record", onClick: () => nav(recordLink(...opens(r))), onKeyDown: (e: React.KeyboardEvent) => { if (e.key === "Enter") nav(recordLink(...opens(r))); } })}>{res.cols.map((c) => <td key={c.h} className={c.num ? "num" : ""}>{cell(c, r, names)}</td>)}</tr>)}
                 {!rows.length && <tr><td colSpan={res.cols.length} className="muted">{q ? `No ${res.noun} match "${q}".` : `No ${res.noun} yet.`}</td></tr>}</tbody></table>
           </section>}
     </>
