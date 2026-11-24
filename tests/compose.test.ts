@@ -97,6 +97,10 @@ describe("what a supplier email can say", () => {
     expect(orderIn({ subject: "Update", body: `Regarding ${b.order.toLowerCase()} and ${a.order}.` }, [a, b])).toBe(b);
     // A longer number that only contains the digits is another number.
     expect(orderIn({ subject: "Invoice", body: `Invoice 9${digits}7 attached.` }, [a, b])).toBeUndefined();
+    // An invoice number that happens to be one order's digits does not outrank, or stand in for, the order the email names.
+    expect(orderIn({ subject: "Statement", body: `Invoice ${digits} is attached. It covers ${b.order}.` }, [a, b])).toBe(b);
+    expect(orderIn({ subject: "Statement", body: `Invoice no. ${digits} and tracking #${digits} attached.` }, [a, b])).toBeUndefined();
+    expect(orderIn({ subject: "Statement", body: `Invoice ${digits}7 attached for order ${digits}.` }, [a, b])).toBe(a);
   });
 
   it("offers what the supplier's record suggests when no order is picked", () => {

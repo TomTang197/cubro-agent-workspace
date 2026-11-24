@@ -49,15 +49,23 @@ export function revisedDate(text: string, marked = false): string | undefined {
   return !marked && !named.length && all.length === 1 ? current[0]?.[0] : undefined;
 }
 
-/** The order a supplier's email is about: the first of this supplier's orders it names, by its full number or by the digits alone (PO41711 or 41711). */
+/** Words before a bare number that make it some other document's number: an invoice, a quote, a consignment. */
+const OTHER_NUMBER = /\b(?:invoice|inv|credit note|quote|quotation|delivery note|packing (?:slip|list)|tracking|consignment|awb|account|ref(?:erence)?)\b[\s.:#-]*(?:no|number|num|nr)?[\s.:#-]*$/i;
+
+/**
+ * The supplier's order an email is about. An order named in full ("PO41711") is taken before anything else in the email; only
+ * where none is does a bare number ("41711") count, and not one given as an invoice, quote or tracking number.
+ */
 export function orderIn(m: Pick<MailMessage, "subject" | "body">, orders: LnPurchaseOrder[]) {
   const text = `${m.subject} ${m.body}`, safe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const at = (po: LnPurchaseOrder) => {
+  const whole = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${safe(name)}(?![\\p{L}\\p{N}])`, "giu");
+  const first = (at: (po: LnPurchaseOrder) => number) => orders.map((po) => ({ po, i: at(po) })).filter((x) => x.i >= 0).sort((a, b) => a.i - b.i)[0]?.po;
+  const bare = (po: LnPurchaseOrder) => {
     const digits = po.order.replace(/^\D+/, "");
-    const names = [po.order, ...(digits.length >= 4 && digits !== po.order ? [digits] : [])].map(safe).join("|");
-    return new RegExp(`(?<![\\p{L}\\p{N}])(?:${names})(?![\\p{L}\\p{N}])`, "iu").exec(text)?.index ?? -1;
+    if (digits.length < 4 || digits === po.order) return -1;
+    return [...text.matchAll(whole(digits))].find((x) => !OTHER_NUMBER.test(text.slice(0, x.index)))?.index ?? -1;
   };
-  return orders.map((po) => ({ po, i: at(po) })).filter((x) => x.i >= 0).sort((a, b) => a.i - b.i)[0]?.po;
+  return first((po) => text.search(whole(po.order))) ?? first(bare);
 }
 
 /** The things this email could say, from the supplier's email being answered, the order and the supplier's record. */
