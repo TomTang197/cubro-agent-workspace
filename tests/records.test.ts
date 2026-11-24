@@ -88,6 +88,39 @@ describe("records and what links them", () => {
     expect(group(d, "Contacts")!.items).toHaveLength(s.contacts.filter((c) => c.AccountId === account.Id).length);
     expect(group(d, "Opportunities")!.items.length).toBeGreaterThan(0);
   });
+  it("an open order with no receipt date yet is not overdue", async () => {
+    const { app, store } = setup();
+    const po = store.state.systems.inforln.purchaseOrders.find((x) => x.status === "Sent" || x.status === "Confirmed")!;
+    po.plannedReceiptDate = ""; po.confirmedReceiptDate = null;
+    const rows: RecordRow[] = (await request(app).get("/api/records/order").expect(200)).body;
+    expect(rows.find((r) => r.id === po.order)).toMatchObject({ status: po.status, subtitle: expect.stringContaining("no due date yet") });
+    const d: RecordDetail = (await request(app).get(`/api/records/order/${po.order}`).expect(200)).body;
+    expect(d.fields.find((f) => f.label === "Planned to arrive")!.value).toBe("No date yet");
+  });
+  it("does not offer to sort purchase orders by a value in mixed currencies", async () => {
+    const { app } = setup();
+    const rows: RecordRow[] = (await request(app).get("/api/records/order").expect(200)).body;
+    expect(Object.keys(rows[0].sort)).toEqual(["Due date", "Order date", "Supplier", "Order number"]);
+  });
+  it("links a task to a product only when it names the code as a whole", async () => {
+    const { app, store } = setup();
+    const s = store.state.systems;
+    const item = s.inforln.items[0];
+    s.clickup.tasks.unshift({ ...s.clickup.tasks[0], id: "t-inside", name: `Freight booking PO9${item.item}7`, description: "" }, { ...s.clickup.tasks[0], id: "t-whole", name: `Recount ${item.item}, then post`, description: "" });
+    const d: RecordDetail = (await request(app).get(`/api/records/product/${item.item}`).expect(200)).body;
+    const titles = group(d, "Tasks")!.items.map((t) => t.title);
+    expect(titles).toContain(`Recount ${item.item}, then post`);
+    expect(titles).not.toContain(`Freight booking PO9${item.item}7`);
+  });
+  it("links a customer to the tasks about its deals, by the deal's Salesforce id", async () => {
+    const { app, store } = setup();
+    const s = store.state.systems;
+    const task = s.clickup.tasks.find((t) => /Salesforce opportunity (\w+)/.test(t.description))!;
+    const opp = s.salesforce.opportunities.find((o) => task.description.includes(o.Id))!;
+    task.name = "Prepare quote";
+    const d: RecordDetail = (await request(app).get(`/api/records/customer/${opp.AccountId}`).expect(200)).body;
+    expect(group(d, "Tasks")!.items.some((t) => t.title === "Prepare quote")).toBe(true);
+  });
   it("says so when a record is not there", async () => {
     const { app } = setup();
     expect((await request(app).get("/api/records/supplier/SUP0000").expect(404)).body.error).toMatch(/not in the connected systems/);
