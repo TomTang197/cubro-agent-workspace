@@ -71,6 +71,7 @@ describe("what a supplier email can say", () => {
     expect(revisedDate("Lot 1 has a new ship date of 3 December and the new delivery date for lot 2 is 20 December.")).toBeUndefined();
     expect(revisedDate("The new confirmed date for dispatch is 1 December; arrival is expected 9 December.")).toBeUndefined();
     expect(revisedDate("Due to a shipping delay, the new delivery date is 9 December instead of 23 November.")).toBe("9 December");
+    expect(revisedDate("Dispatch is now due on 1 December. Arrival is expected 9 December.")).toBeUndefined();
     expect(revisedDate("The new delivery date is 3 December for the first lot and the new delivery date is 20 December for the rest.")).toBeUndefined();
     // A date is read by the words since the date before it: a tracking date after the new delivery date does not compete with it.
     expect(revisedDate("The new delivery date is 9 December 2026 and we will send tracking details by 12 December 2026.")).toBe("9 December 2026");

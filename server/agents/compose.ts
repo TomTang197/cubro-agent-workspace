@@ -52,9 +52,10 @@ const MOVED_TO = new RegExp(String.raw`\b(?:(?:delayed|moved|pushed|put back|pos
 const TO = /^\s*(?:to|until|till)\s+(?:the\s+)?$/i;
 /**
  * A date given for when the goods leave the supplier. It is not the delivery date, and a date beside it may be for another lot.
- * Shipping mentioned before the words turn to delivery ("due to a shipping delay, the new delivery date is") is not about the date.
+ * Shipping mentioned before the words turn to delivery or arrival ("due to a shipping delay, the new delivery date is") is not
+ * about the date; "dispatch is now due on" still is.
  */
-const SHIPS = /\b(?:ship(?:s|ping|ped)?|dispatch(?:ed|es)?|despatch(?:ed|es)?)\b(?!.*\b(?:deliver(?:y|ed|ies)?|arriv(?:e|es|al)|due|eta)\b)/is;
+const SHIPS = /\b(?:ship(?:s|ping|ped)?|dispatch(?:ed|es)?|despatch(?:ed|es)?)\b(?!.*\b(?:deliver(?:y|ed|ies)?|arriv(?:e|es|al))\b)/is;
 
 /**
  * The new delivery date a delay notice gives: the date it calls new, revised or moved to, never the one it is moving from.
