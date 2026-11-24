@@ -50,25 +50,30 @@ const DATED = String.raw`(?:(?:${TIMING})\s+){0,2}(?:date|eta|estimate|schedule)
 const NEW_TIMING = new RegExp(String.raw`\b(?:(?:new|revised|updated)\s+${DATED}\b|(?:new|revised|updated)\s+(?:${TIMING})\s*(?:[:–—-]|is|on|of|for)?\s*(?:the\s+)?$|rescheduled\b|now\s+(?:\w+\s+){0,5}(?:the\s+)?$)`, "i");
 const MOVED_TO = new RegExp(String.raw`\b(?:(?:delayed|moved|pushed|put back|postponed|slipped|changed|brought forward)\b[^,;:]*\b|(?:revised|updated|amended)\s+(?:(?:the|our|your)\s+${DATED}\s+)?)(?:to|until|till)\s+(?:the\s+)?$`, "i");
 const TO = /^\s*(?:to|until|till)\s+(?:the\s+)?$/i;
+/** A date given for when the goods leave the supplier. It is not the delivery date, and a date beside it may be for another lot. */
+const SHIPS = /\b(?:ship(?:s|ping|ped)?|dispatch(?:ed|es)?|despatch(?:ed|es)?)\b/i;
 
 /**
  * The new delivery date a delay notice gives: the date it calls new, revised or moved to, never the one it is moving from.
  * Each date is read by the words since the date before it, so "the new date is 9 December and tracking follows by 12 December"
  * means 9 December, and "was delayed until 9 December" is where it moved to, not where it was.
  * A notice with one date and no such words means that date, unless `marked` asks for the words. Where the notice leaves it unclear
- * (several dates and no such words, or two different dates both called new), none is quoted rather than the wrong one.
+ * (several dates and no such words, two different dates both called new, or a shipping date among several), none is quoted rather
+ * than the wrong one.
  */
 export function revisedDate(text: string, marked = false): string | undefined {
   const all = [...text.matchAll(DATE)], fresh: string[] = [];
-  let after = 0, last = "";
+  let after = 0, last = "", ships = false;
   for (const d of all) {
     const sentence = text.slice(0, d.index).search(/[^.!?\n]*$/), lead = text.slice(Math.max(sentence, after), d.index);
     const was = WAS.exec(lead)?.[0];
     const kind = FROM.test(lead) || (was && !MOVING.test(was)) ? "old" : NEW_TIMING.test(lead) || MOVED_TO.test(lead) || (last === "old" && sentence <= after && TO.test(lead)) ? "new" : "";
+    if (kind !== "old" && SHIPS.test(lead)) ships = true;
     if (kind === "new") fresh.push(d[0]);
     after = d.index + d[0].length;
     last = kind;
   }
+  if (ships && all.length > 1) return undefined;
   // The same day given once with its year and once without is one date.
   if (new Set(fresh.map((d) => d.replace(/ \d{4}$/, ""))).size === 1) return fresh.find((d) => /\d{4}$/.test(d)) ?? fresh[0];
   return !marked && !fresh.length && all.length === 1 && last !== "old" ? all[0][0] : undefined;
