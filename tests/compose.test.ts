@@ -115,6 +115,9 @@ describe("what a supplier email can say", () => {
     const prefix = a.order.slice(0, -digits.length);
     expect(orderIn({ subject: "Delay", body: `${prefix} ${digits} is delayed. ${b.order} is on time.` }, [a, b])).toBe(a);
     expect(orderIn({ subject: "Delay", body: `Invoice ${b.order.replace(/^\D+/, "")} attached. ${prefix}-${digits} is delayed.` }, [a, b])).toBe(a);
+    // The supplier's own sales order, account or reference number is not our order, even when its digits match one.
+    expect(orderIn({ subject: "Delay", body: `Sales order ${digits} for ${b.order} is delayed.` }, [a, b])).toBe(b);
+    for (const said of [`Sales order ${digits}`, `Account no. ${digits}`, `Our ref: ${digits}`, `Customer #${digits}`]) expect(orderIn({ subject: "Statement", body: `${said} is attached.` }, [a, b])).toBeUndefined();
     for (const said of [`PO reference ${digits}`, `P.O. #${digits}`, `Purchase order no. ${digits}`, `your order ref: ${digits}`]) expect(orderIn({ subject: "Delay", body: `${said} is delayed.` }, [a, b])).toBe(a);
   });
 

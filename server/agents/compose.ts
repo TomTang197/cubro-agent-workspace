@@ -66,14 +66,15 @@ export function revisedDate(text: string, marked = false): string | undefined {
   return !marked && !fresh.length && all.length === 1 && last !== "old" ? all[0][0] : undefined;
 }
 
-/** Words before a bare number that make it another document's number: an invoice, a quote, a consignment. */
-const OTHER_NUMBER = /\b(?:invoice|inv|credit note|quote|quotation|delivery note|packing (?:slip|list)|tracking|consignment|awb)\b[\s.:#-]*(?:no|number|num|nr)?[\s.:#-]*$/i;
-/** Words before a number that make it an order number however it is spaced: "PO 41711", "purchase order no. 41711", "PO reference 41711". */
-const ORDER_WORDS = String.raw`(?:p\.?\s?o\.?|purchase order|order)(?:\s*(?:no|number|num|nr|ref|reference))?[\s.:#-]*`;
+/** Words before a bare number that make it something other than our order number: an invoice, a quote, the supplier's own order or account. */
+const OTHER_NUMBER = /\b(?:invoice|inv|credit note|quote|quotation|delivery note|packing (?:slip|list)|tracking|consignment|awb|account|acct|customer|sales order|works? order|job|our (?:order|ref|reference)|ref|reference)\b[\s.:#-]*(?:no|number|num|nr|id)?[\s.:#-]*$/i;
+/** Words before a number that make it our order number however it is spaced: "PO 41711", "purchase order no. 41711", "PO reference 41711", "your order 41711". */
+const ORDER_WORDS = String.raw`(?:p\.?\s?o\.?|purchase order|your (?:order|ref|reference))(?:\s*(?:no|number|num|nr|ref|reference))?[\s.:#-]*`;
 
 /**
  * The supplier's order an email is about. An order the email calls an order ("PO41711", "PO 41711", "order no. 41711") is taken
- * before anything else in it; only where none is does a bare number ("41711") count, and not an invoice, quote or tracking number.
+ * before anything else in it; only where none is does a bare number ("41711") count, and not one given as an invoice, a quote,
+ * a tracking number, an account or the supplier's own sales order.
  */
 export function orderIn(m: Pick<MailMessage, "subject" | "body">, orders: LnPurchaseOrder[]) {
   const text = `${m.subject} ${m.body}`, safe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
