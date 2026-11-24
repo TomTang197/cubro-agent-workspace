@@ -1,6 +1,6 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { composeBody, composeParts, emailOptions, emailTopic, orderIn, revisedDate, tidyOwnLine, type ComposeInput } from "../server/agents/compose";
+import { composeBody, composeParts, emailOptions, emailTopic, orderIn, revisedDate, tidyOwnLine, writeList, type ComposeInput } from "../server/agents/compose";
 import { createApp } from "../server/app";
 import type { LnPurchaseOrder, MailMessage } from "../server/connectors/types";
 import { templateProvider, type LlmProvider } from "../server/llm";
@@ -114,6 +114,11 @@ describe("what a supplier email can say", () => {
 
     expect(emailTopic({ subject: "Christmas and New Year closure", body: "We close on 23 December and reopen on 11 January." })).toBe("closure");
     expect(emailTopic({ subject: "Hello", body: "Do you have a new catalogue?" })).toBe("other");
+    // A confirmation is of the order, now: something still to be confirmed is not one.
+    expect(emailTopic({ subject: "RE: Purchase order PO41694 — Cubro Ltd", body: "Thank you for the order. We confirm PO41694 at the prices shown." })).toBe("confirmed");
+    expect(emailTopic({ subject: "RE: Purchase order PO41694 — Cubro Ltd", body: "We are pleased to confirm your purchase order." })).toBe("confirmed");
+    expect(emailTopic({ subject: "Artwork", body: "We will start the run once we confirm the artwork. Please send the final file." })).toBe("other");
+    expect(emailTopic({ subject: "PO41694", body: "We will send a ship date once the order is confirmed by our factory." })).toBe("other");
   });
 
   it("finds the order a supplier's email is about, with or without the PO prefix", () => {
@@ -326,6 +331,11 @@ describe("writing a supplier email from the options", () => {
     // An order confirmation needs no answer, so it is found only by searching; news about an order comes before notices to every customer.
     expect(first.emails.filter((e) => e.topic === "confirmed").every((e) => !e.toAnswer)).toBe(true);
     expect(first.emails.filter((e) => e.toAnswer).some((e) => e.topic === "delay")).toBe(true);
+    // A confirmation that asks something wants an answer, and so does an email that only mentions confirming something else.
+    const [s] = ln(store).suppliers, from = { name: s.contactName, address: s.email }, to = [{ name: "Priya Raman", address: "purchasing@cubro.example.co.nz" }];
+    const mail = (id: string, body: string): MailMessage => ({ id, conversationId: `conv-${id}`, subject: "Artwork for the new cartons", from, to, body, bodyPreview: body, receivedDateTime: "2026-11-22T20:00:00.000Z", isDraft: false, folder: "Inbox" });
+    const listed = writeList(ln(store).suppliers, ln(store).purchaseOrders, [mail("asks", "Thank you for your order. Which delivery address should we use?"), mail("artwork", "We will start the run once we confirm the artwork. Please send the final file."), mail("plain", "Thank you for your order.")], [], today).emails;
+    expect(listed.map((e) => [e.id, e.topic, e.toAnswer])).toEqual([["asks", "confirmed", true], ["artwork", "other", true], ["plain", "confirmed", false]]);
     expect(first.emails.findIndex((e) => !e.order)).toBeGreaterThan(first.emails.map((e) => !!e.order).lastIndexOf(true));
 
     // Orders still to arrive, the latest first, and no order that has arrived.

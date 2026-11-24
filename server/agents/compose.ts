@@ -25,7 +25,8 @@ export function emailTopic(m: Pick<MailMessage, "subject" | "body">): "delay" | 
   if (/part shipment|part delivery|balance will follow/.test(t)) return "part";
   if (/prices? (will|are going to) (rise|increase|go up)|price (increase|list|rise)/.test(t)) return "price";
   if (/closure|will close|we close|closed (for|from)|reopen/.test(t)) return "closure";
-  if (/we confirm|order (is )?confirmed|thank you for (the|your) order/.test(t)) return "confirmed";
+  // "We confirm PO41694", not "once we confirm the artwork": only the order itself, confirmed now.
+  if (/(?<!\b(?:once|when|after|until|before|if|unless|can|could|will|cannot|can't) )we (?:hereby |are pleased to )?confirm (?:receipt of )?(?:your |the |this )?(?:purchase )?(?:order\b|po ?\d)|(?<!\b(?:once|when|after|until|before|if|unless) (?:your |the |this )?(?:purchase )?)order (?:is )?confirmed|thank you for (?:the|your) order/.test(t)) return "confirmed";
   return "other";
 }
 
@@ -180,7 +181,7 @@ export function emailOptions({ supplier: s, order: po, message: m, orders, items
 
 /** Where an email can start: a supplier's email nobody has answered, an order still to arrive, or the supplier alone. */
 export interface WriteList {
-  emails: { id: string; supplier: string; from: string; subject: string; at: string; topic: ReturnType<typeof emailTopic>; order?: string; /** Listed without searching for it: news that wants an answer, not about an order that has arrived. */ toAnswer: boolean; draft: boolean }[];
+  emails: { id: string; supplier: string; from: string; subject: string; at: string; topic: ReturnType<typeof emailTopic>; order?: string; /** Listed without searching for it: news that wants an answer (a plain order confirmation does not, one that asks something does), not about an order that has arrived. */ toAnswer: boolean; draft: boolean }[];
   orders: { id: string; supplier: string; status: string; due: string; daysLate: number; draft: boolean }[];
   suppliers: { id: string; name: string; contact: string; open: number }[];
 }
@@ -203,7 +204,7 @@ export function writeList(suppliers: LnSupplier[], purchaseOrders: LnPurchaseOrd
     seen.add(m.conversationId);
     if (m.receivedDateTime <= (answered.get(m.conversationId) ?? "")) return [];
     const po = orderIn(m, purchaseOrders.filter((o) => o.supplier === s.supplier)), topic = emailTopic(m);
-    return [{ id: m.id, supplier: s.name, from: m.from.name, subject: m.subject, at: m.receivedDateTime, topic, order: po?.order, toAnswer: topic !== "confirmed" && (!po || OPEN.includes(po.status)), draft: waiting.some((p) => p.inReplyTo?.id === m.id) || drafted(po?.order) }];
+    return [{ id: m.id, supplier: s.name, from: m.from.name, subject: m.subject, at: m.receivedDateTime, topic, order: po?.order, toAnswer: (topic !== "confirmed" || m.body.includes("?")) && (!po || OPEN.includes(po.status)), draft: waiting.some((p) => p.inReplyTo?.id === m.id) || drafted(po?.order) }];
   });
   return {
     // News about an order comes before a notice sent to every customer; within each, the newest first.
