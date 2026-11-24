@@ -174,7 +174,10 @@ describe("writing a supplier email from the options", () => {
     const { app, store } = setup();
     const po = ln(store).purchaseOrders.find((o) => o.status === "Confirmed")!;
     const before = store.state.approvals.length;
-    expect((await request(app).post("/api/supplier-emails").send({ order: po.order, options: ["not-an-option"], own: ["  "] }).expect(400)).body.error).toMatch(/Pick at least one thing to say/);
+    expect((await request(app).post("/api/supplier-emails").send({ order: po.order, options: [], own: ["  "] }).expect(400)).body.error).toMatch(/Pick at least one thing to say/);
+    // The order arrived while the page was open: what was picked no longer applies, and the email is not saved without it.
+    po.status = "Received";
+    expect((await request(app).post("/api/supplier-emails").send({ order: po.order, options: ["tracking"], own: ["Please label each pallet."] }).expect(409)).body.error).toMatch(/some of what you picked no longer applies. Nothing was saved/);
     await request(app).get("/api/supplier-emails/options?order=PO0").expect(404);
     await request(app).get("/api/supplier-emails/options").expect(404);
     const staff = store.state.systems.m365.messages.find((m) => m.folder === "Inbox" && /^Stock query/.test(m.subject))!;

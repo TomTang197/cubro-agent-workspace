@@ -165,8 +165,11 @@ export class AgentService {
     const lines = (Array.isArray(own) ? own : []).map((l) => String(l).trim()).filter(Boolean);
     if (lines.some((l) => l.length > MAX_OWN_LINE * 3)) throw new HttpError(400, "One of your own lines is too long.");
     const input = await this.composeInput(q);
+    if (!lines.length && !ids.length) throw new HttpError(400, "Pick at least one thing to say, or add a line of your own.");
+    // The order or the inbox can change while the page is open. What was picked is never left out without saying so.
+    const offered = emailOptions(input);
+    if (ids.some((id) => !offered.some((o) => o.id === id))) throw new HttpError(409, "The order has changed since you opened this page, so some of what you picked no longer applies. Nothing was saved. Open the page again and pick from what it offers now.");
     const draft = composeDraft(input, by, ids, lines);
-    if (!lines.length && !emailOptions(input).some((o) => ids.includes(o.id))) throw new HttpError(400, "Pick at least one thing to say, or add a line of your own.");
     this.unlessRestored(state);
     const a = toApproval(draft, "", new Date().toISOString(), this.store.nextId("apr"));
     this.store.state.approvals.unshift(a);
