@@ -29,14 +29,24 @@ export function emailTopic(m: Pick<MailMessage, "subject" | "body">): "delay" | 
   return "other";
 }
 
+/** Words just before a date that make it the date the delivery is moving away from: "from 12 December", "originally due 12 December". */
+const OLD_DATE = /\b(?:from|instead of|rather than|not|replac(?:es|ing)|(?:original|originally|previous|previously|earlier|old|was|were)(?: \w+){0,3})\s+(?:the\s+)?$/i;
+/** Words earlier in the sentence that make a date the one the delivery is moving to. */
+const NEW_DATE = /\b(?:new|revised|rescheduled|delayed (?:un)?til|delayed to|now (?:be|due|expected|arrive|ship)\b|(?:moved|pushed|put back|postponed|slipped|changed)\b.*\bto\s+(?:the\s+)?$)/i;
+
 /**
- * The new delivery date a delay notice gives: the date in the sentence that calls it new, revised or delayed to.
- * A notice with one date and no such words means that date; with several and no such words, none is quoted rather than the wrong one.
+ * The new delivery date a delay notice gives: the date its sentence calls new, revised or moved to, never the one it is moving from.
+ * A notice with one date and no such words means that date. Where the notice leaves it unclear
+ * (several dates and no such words, or two different dates both called new), none is quoted rather than the wrong one.
  */
 export function revisedDate(text: string): string | undefined {
-  const date = DATE.source, named = new RegExp(`\\b(?:new|revised|rescheduled|delayed (?:un)?til|delayed to|now (?:be |due |expected |arrive |ship )+)[^.!?\\n]*?(${date})`, "i").exec(text)?.[1];
-  const all = text.match(DATE) ?? [];
-  return named ?? (all.length === 1 ? all[0] : undefined);
+  const all = [...text.matchAll(DATE)], before = (d: RegExpMatchArray) => text.slice(0, d.index);
+  const current = all.filter((d) => !OLD_DATE.test(before(d)));
+  const named = [...new Set(current.filter((d) => NEW_DATE.test(before(d).split(/[.!?\n]/).pop()!)).map((d) => d[0]))];
+  // The same day given once with its year and once without is one date.
+  const days = new Set(named.map((d) => d.replace(/ \d{4}$/, "")));
+  if (days.size === 1) return named.find((d) => /\d{4}$/.test(d)) ?? named[0];
+  return !named.length && all.length === 1 ? current[0]?.[0] : undefined;
 }
 
 /** The order a supplier's email is about: the first of this supplier's orders it names, by its full number or by the digits alone (PO41711 or 41711). */

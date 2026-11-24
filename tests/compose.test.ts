@@ -60,6 +60,14 @@ describe("what a supplier email can say", () => {
     expect(revisedDate("Sorry for the delay. Shipping 3 December 2026.")).toBe("3 December 2026");
     // Two dates and nothing to say which is the new one: none is quoted.
     expect(revisedDate("Vessel sails 3 December 2026, arrives 20 December 2026.")).toBeUndefined();
+    // The date the delivery is moving from is never the new one, whichever way round the sentence puts them.
+    expect(revisedDate("The revised delivery has moved from 23 November 2026 to 9 December 2026.")).toBe("9 December 2026");
+    expect(revisedDate("Delivery has been pushed back from 23 November to 9 December.")).toBe("9 December");
+    expect(revisedDate("The new date is 9 December 2026 instead of 23 November 2026.")).toBe("9 December 2026");
+    expect(revisedDate("The revised schedule replaces the original delivery date of 23 November 2026.")).toBeUndefined();
+    expect(revisedDate("The order was due 23 November 2026 and will be late.")).toBeUndefined();
+    expect(revisedDate("New date 9 December 2026. To confirm, the revised arrival is 9 December.")).toBe("9 December 2026");
+    expect(revisedDate("The new ship date is 3 December 2026 and the new arrival date is 20 December 2026.")).toBeUndefined();
     // They have just given the new date, so it is not asked for.
     expect(options.map((o) => o.id)).not.toContain("ship-date");
     // What answers their email comes before what the order suggests.
