@@ -57,7 +57,8 @@ function rows(d: Data, today: string): RecordRow[] {
     ...d.orders.map((po): RecordRow => ({
       kind: "order", id: po.order, title: po.order, subtitle: `${supplierName.get(po.supplier) ?? po.supplier} · ${dueText(po)}`, system: "Infor LN",
       status: late(po) ? "Overdue" : po.status, tone: late(po) ? "warn" : isOpen(po) ? undefined : "ok",
-      sort: { "Due date": dueOf(po), "Order date": po.orderDate, Value: valueOf(po), "Order number": po.order },
+      // Not sortable by value: orders are in six currencies and nothing here converts between them.
+      sort: { "Due date": dueOf(po), "Order date": po.orderDate, Supplier: supplierName.get(po.supplier) ?? po.supplier, "Order number": po.order },
     })),
     ...d.accounts.map((a): RecordRow => ({
       kind: "customer", id: a.Id, title: a.Name, subtitle: `${a.Type} · ${a.BillingCity}`, system: "Salesforce", status: a.Market__c,
