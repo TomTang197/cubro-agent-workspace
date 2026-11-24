@@ -176,4 +176,4 @@ html, body, #root { height:100%; }
   .split > .list { max-height:320px; overflow:auto; }
   .toolbar input[type=search] { flex:1; min-width:140px; } .count-of { margin-left:0; }
 }
-@media (max-width: 480px) { .who-name { display:none; } .search input { font-size:16px; } }
+@media (max-width: 480px) { .who-name { display:none; } .search input { font-size:16px; } .search-results { position:fixed; top:52px; left:8px; right:8px; width:auto; } }
