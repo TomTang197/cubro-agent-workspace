@@ -34,14 +34,17 @@ const FROM = /\b(?:from|instead of|rather than|not|replac(?:es|ing))\s+(?:the\s+
 /** So do these a few words before it ("was due 12 December", "originally planned for 12 December"), unless those words say it moved ("was put back to"). */
 const WAS = /\b(?:original|originally|previous|previously|earlier|old|was|were)(?: \w+){0,3}\s+(?:the\s+)?$/i;
 const MOVING = /\b(?:delayed|moved|pushed|put back|postponed|slipped|changed|brought forward|rescheduled|revised|now)\b/i;
+/** The only words allowed between "new", "revised" or "updated" and the date they describe: a payment date or a freight estimate is not a delivery date. */
+const TIMING = "expected|estimated|planned|delivery|arrival|ship|shipping|shipment|dispatch|due|completion";
 /**
  * What makes a date the new one, in the words since the date before it (or the start of the sentence): a phrase that names
- * a date or estimate ("new delivery date", "revised ETA", "now expected on"), or a moving word that runs straight into the date
- * ("pushed back to", "revised to", "delayed until"). A change to something else ("we changed carriers on 1 December",
+ * a delivery date or estimate ("new delivery date", "revised ETA", "now expected on"), or one that runs straight into the date
+ * ("revised delivery: 9 December", "pushed back to", "revised to", "delayed until"). Anything else is left unquoted rather than
+ * guessed at: a change to something else ("we changed carriers on 1 December", "the updated payment date is 1 December",
  * "we updated the delivery address on 1 December") does not count.
  */
-const NEW_TIMING = /\b(?:(?:new|revised|updated)\s+(?:\w+\s+){0,2}?(?:date|eta|etd|estimate|schedule)\b|rescheduled\b|now\s+(?:\w+\s+){0,5}(?:the\s+)?$)/i;
-const MOVED_TO = /\b(?:delayed|moved|pushed|put back|postponed|slipped|changed|brought forward|revised|updated|amended)\b[^,;:]*\b(?:to|until|till)\s+(?:the\s+)?$/i;
+const NEW_TIMING = new RegExp(String.raw`\b(?:(?:new|revised|updated)\s+(?:(?:${TIMING})\s+){0,2}(?:date|eta|etd|estimate|schedule)\b|(?:new|revised|updated)\s+(?:${TIMING})\s*(?:[:–—-]|is|on|of|for)?\s*(?:the\s+)?$|rescheduled\b|now\s+(?:\w+\s+){0,5}(?:the\s+)?$)`, "i");
+const MOVED_TO = /\b(?:(?:delayed|moved|pushed|put back|postponed|slipped|changed|brought forward)\b[^,;:]*\b|(?:revised|updated|amended)\s+)(?:to|until|till)\s+(?:the\s+)?$/i;
 const TO = /^\s*(?:to|until|till)\s+(?:the\s+)?$/i;
 
 /**
