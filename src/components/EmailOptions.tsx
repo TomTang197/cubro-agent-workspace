@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { EmailOption } from "../api";
 
 const FROM: Record<EmailOption["from"], string> = { email: "To answer their email", order: "About the order", supplier: "From the supplier's record" };
@@ -8,13 +8,17 @@ const MAX_OWN_LINE = 600;
  * What a supplier email can say, as buttons: one click puts the words in, another takes them out.
  * The last one is the writer's own line, which the assistant tidies before it goes in.
  */
-export function EmailOptions({ options, isOn, onToggle, tidy, onOwn, children }: {
+export function EmailOptions({ options, isOn, onToggle, tidy, onOwn, onTyping, children }: {
   options: EmailOption[]; isOn: (o: EmailOption) => boolean; onToggle: (o: EmailOption) => void;
-  tidy: (note: string) => Promise<{ text: string; problem?: string }>; onOwn: (text: string) => void; children?: React.ReactNode;
+  tidy: (note: string) => Promise<{ text: string; problem?: string }>; onOwn: (text: string) => void;
+  /** Told whether a line is typed but not added yet, so the page can ask before it is lost. */
+  onTyping?: (typing: boolean) => void; children?: React.ReactNode;
 }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string>();
+  const typing = !!note.trim();
+  useEffect(() => onTyping?.(typing), [typing]);
   const groups = (Object.keys(FROM) as EmailOption["from"][]).map((from) => ({ from, list: options.filter((o) => o.from === from) })).filter((g) => g.list.length);
   async function add() {
     setBusy(true); setProblem(undefined);

@@ -1,8 +1,8 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { composeBody, composeParts, emailOptions, emailTopic, orderIn, revisedDate, tidyOwnLine, type ComposeInput } from "../server/agents/compose";
+import { composeBody, composeParts, emailOptions, emailTopic, orderIn, revisedDate, tidyOwnLine, writeList, type ComposeInput } from "../server/agents/compose";
 import { createApp } from "../server/app";
-import type { LnPurchaseOrder, MailMessage } from "../server/connectors/types";
+import { MAIL_LIST_LIMIT, type LnPurchaseOrder, type MailMessage } from "../server/connectors/types";
 import { templateProvider, type LlmProvider } from "../server/llm";
 import { Store, type ApprovalItem, type SupplierEmailPayload } from "../server/store";
 
@@ -114,6 +114,14 @@ describe("what a supplier email can say", () => {
 
     expect(emailTopic({ subject: "Christmas and New Year closure", body: "We close on 23 December and reopen on 11 January." })).toBe("closure");
     expect(emailTopic({ subject: "Hello", body: "Do you have a new catalogue?" })).toBe("other");
+    // A confirmation is of the order, now: something still to be confirmed is not one.
+    expect(emailTopic({ subject: "RE: Purchase order PO41694 — Cubro Ltd", body: "Thank you for the order. We confirm PO41694 at the prices shown." })).toBe("confirmed");
+    expect(emailTopic({ subject: "RE: Purchase order PO41694 — Cubro Ltd", body: "We are pleased to confirm your purchase order." })).toBe("confirmed");
+    expect(emailTopic({ subject: "Order", body: "We confirm the attached purchase order." })).toBe("confirmed");
+    expect(emailTopic({ subject: "Order", body: "We hereby confirm receipt of your new order." })).toBe("confirmed");
+    expect(emailTopic({ subject: "Artwork", body: "We confirm the artwork for your order is at the printer." })).toBe("other");
+    expect(emailTopic({ subject: "Artwork", body: "We will start the run once we confirm the artwork. Please send the final file." })).toBe("other");
+    expect(emailTopic({ subject: "PO41694", body: "We will send a ship date once the order is confirmed by our factory." })).toBe("other");
   });
 
   it("finds the order a supplier's email is about, with or without the PO prefix", () => {
@@ -306,5 +314,58 @@ describe("writing a supplier email from the options", () => {
     const emails = (await request(app).get(`/api/records/order/${order}`).expect(200)).body.links.find((l: { label: string }) => l.label === "Emails").items as { title: string; reply?: string; status: string }[];
     expect(emails.find((e) => e.title === delay.subject)).toMatchObject({ reply: delay.id });
     expect(emails.filter((e) => e.status !== "Received").every((e) => !e.reply)).toBe(true);
+  });
+
+  it("lists what there is to write about: unanswered supplier emails, orders still to arrive and every supplier", async () => {
+    const { app, store } = setup();
+    type Starts = import("../server/agents/compose").WriteList;
+    const starts = async () => (await request(app).get("/api/supplier-emails/starts").expect(200)).body as Starts;
+    const first = await starts();
+    const inbox = store.state.systems.m365.messages.filter((m) => m.folder === "Inbox");
+
+    // One row for each conversation with a supplier, on their latest email in it; nobody else's email is offered, a freight forwarder's in the same conversation included.
+    expect(first.emails.length).toBeGreaterThan(0);
+    for (const e of first.emails) {
+      const m = inbox.find((x) => x.id === e.id)!;
+      expect(ln(store).suppliers.some((s) => s.email === m.from.address && s.name === e.supplier)).toBe(true);
+      expect(inbox.some((x) => x.conversationId === m.conversationId && x.from.address === m.from.address && x.receivedDateTime > m.receivedDateTime)).toBe(false);
+    }
+    expect(new Set(first.emails.map((e) => inbox.find((x) => x.id === e.id)!.conversationId)).size).toBe(first.emails.length);
+    // An order confirmation needs no answer, so it is found only by searching; news about an order comes before notices to every customer.
+    expect(first.emails.filter((e) => e.topic === "confirmed").every((e) => !e.toAnswer)).toBe(true);
+    expect(first.emails.filter((e) => e.toAnswer).some((e) => e.topic === "delay")).toBe(true);
+    // An order confirmation is not listed, whatever its punctuation; an email that only mentions confirming something else is.
+    const [s] = ln(store).suppliers, from = { name: s.contactName, address: s.email }, to = [{ name: "Priya Raman", address: "purchasing@cubro.example.co.nz" }];
+    const mail = (id: string, body: string): MailMessage => ({ id, conversationId: `conv-${id}`, subject: "Artwork for the new cartons", from, to, body, bodyPreview: body, receivedDateTime: "2026-11-22T20:00:00.000Z", isDraft: false, folder: "Inbox" });
+    const listed = writeList(ln(store).suppliers, ln(store).purchaseOrders, [mail("asks", "Thank you for your order. Which delivery address should we use?"), mail("artwork", "We will start the run once we confirm the artwork. Please send the final file."), mail("plain", "Thank you for your order.")], [], today).emails;
+    expect(listed.map((e) => [e.id, e.topic, e.toAnswer])).toEqual([["asks", "confirmed", false], ["artwork", "other", true], ["plain", "confirmed", false]]);
+    // A mailbox lists only the latest it sent. With that list full, an email older than all of it may have been answered, so it is left to the search.
+    const ours = (n: number): MailMessage[] => Array.from({ length: n }, (_, i) => ({ ...mail(`sent-${i}`, "Thank you."), from: to[0], to: [from], folder: "Sent Items" as const, receivedDateTime: `2026-11-23T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}.000Z` }));
+    const older = mail("older", "Do you have a new catalogue?");
+    const waits = (messages: MailMessage[]) => writeList(ln(store).suppliers, [], messages, [], today).emails.map((e) => [e.id, e.toAnswer]);
+    expect(waits([older, ...ours(MAIL_LIST_LIMIT - 1)])).toEqual([["older", true]]);
+    expect(waits([older, ...ours(MAIL_LIST_LIMIT)])).toEqual([["older", false]]);
+    expect(waits([{ ...older, receivedDateTime: "2026-11-23T00:03:00.000Z" }, ...ours(MAIL_LIST_LIMIT)])).toEqual([["older", true]]);
+    expect(first.emails.findIndex((e) => !e.order)).toBeGreaterThan(first.emails.map((e) => !!e.order).lastIndexOf(true));
+
+    // Orders still to arrive, the latest first, and no order that has arrived.
+    const open = ln(store).purchaseOrders.filter((po) => !["Received", "Closed"].includes(po.status));
+    expect(first.orders.map((o) => o.id).sort()).toEqual(open.map((po) => po.order).sort());
+    expect(first.orders[0].daysLate).toBeGreaterThan(0);
+    expect(first.orders.map((o) => o.daysLate)).toEqual([...first.orders.map((o) => o.daysLate)].sort((a, b) => b - a));
+    const late = first.orders[0], po = open.find((x) => x.order === late.id)!;
+    expect(late).toMatchObject({ due: due(po), daysLate: Math.round((Date.parse("2026-11-23") - Date.parse(due(po)!)) / 86_400_000) });
+    expect(first.suppliers.map((s) => s.id).sort()).toEqual(ln(store).suppliers.map((s) => s.supplier).sort());
+
+    // A reply waiting in Drafts to check is marked on the email and on its order; once it is sent the email is answered and leaves the list.
+    const delay = first.emails.find((e) => e.topic === "delay" && e.order && !e.draft)!;
+    const item = (await request(app).post("/api/supplier-emails").send({ user: "Priya Raman", reply: delay.id, options: ["accept-date"] }).expect(200)).body as ApprovalItem;
+    const waiting = await starts();
+    expect(waiting.emails.find((e) => e.id === delay.id)).toMatchObject({ draft: true });
+    expect(waiting.orders.find((o) => o.id === delay.order)).toMatchObject({ draft: true });
+    await request(app).post(`/api/approvals/${item.id}/approve`).send({ user: "Priya Raman" }).expect(200);
+    const after = await starts();
+    expect(after.emails.some((e) => e.id === delay.id)).toBe(false);
+    expect(after.emails.length).toBe(first.emails.length - 1);
   });
 });

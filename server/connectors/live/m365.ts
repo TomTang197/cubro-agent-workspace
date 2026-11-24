@@ -1,6 +1,6 @@
 // Microsoft 365 through Microsoft Graph v1.0, signed in as an app registration (client credentials).
 import { baseStatus, failedStatus, jsonSetting, ConnectorError, type Env, type FetchLike } from "../config.js";
-import type { BrandAsset, CalendarEvent, M365Connector, MailMessage, TeamsPost } from "../types.js";
+import { MAIL_LIST_LIMIT, type BrandAsset, type CalendarEvent, type M365Connector, type MailMessage, type TeamsPost } from "../types.js";
 import { createHttp, requireSettings, tokenCache } from "./http.js";
 
 const GRAPH = "https://graph.microsoft.com/v1.0";
@@ -93,7 +93,7 @@ export function createLiveM365(env: Env, fetchImpl: FetchLike = fetch): M365Conn
     async listMessages(folder) {
       const folders = folder ? [folder] : (Object.keys(FOLDERS) as MailMessage["folder"][]);
       const q = new URLSearchParams({ $top: "50", $orderby: "receivedDateTime desc", $select: "id,conversationId,from,toRecipients,replyTo,subject,bodyPreview,body,receivedDateTime,createdDateTime,isDraft" });
-      const lists = await Promise.all(folders.map(async (f) => (await all<GraphMessage>(`${mailbox()}/mailFolders/${FOLDERS[f]}/messages?${q}`, mailHeaders, 300)).map((m) => toMessage(m, f))));
+      const lists = await Promise.all(folders.map(async (f) => (await all<GraphMessage>(`${mailbox()}/mailFolders/${FOLDERS[f]}/messages?${q}`, mailHeaders, MAIL_LIST_LIMIT)).slice(0, MAIL_LIST_LIMIT).map((m) => toMessage(m, f))));
       return lists.flat().sort((a, b) => b.receivedDateTime.localeCompare(a.receivedDateTime));
     },
     async createDraft(msg) {

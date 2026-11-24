@@ -75,6 +75,7 @@ export interface BrandAsset {
 export interface M365Connector {
   status(): Promise<ConnectorStatus>;
   listEvents(fromIso: string, toIso: string): Promise<CalendarEvent[]>;
+  /** The latest of each folder, at most MAIL_LIST_LIMIT of each. */
   listMessages(folder?: MailMessage["folder"]): Promise<MailMessage[]>;
   createDraft(msg: Omit<MailMessage, "id" | "conversationId" | "receivedDateTime" | "isDraft" | "folder" | "bodyPreview" | "replyTo"> & { /** The id of the message this one answers, so it is filed in the same conversation. */ inReplyTo?: string }): Promise<MailMessage>;
   sendDraft(id: string): Promise<MailMessage>;
@@ -265,3 +266,6 @@ export interface Connectors {
   clickup: ClickUpConnector;
   inforln: InforLnConnector;
 }
+
+/** How many messages of one folder a mailbox lists, the latest first. A folder that returns this many has older ones that are not listed. */
+export const MAIL_LIST_LIMIT = 300;
