@@ -13,6 +13,7 @@ export interface ComposeInput { supplier: LnSupplier; order?: LnPurchaseOrder; m
 const OPEN = ["Created", "Sent", "Confirmed", "Partially received"];
 const DATE = /\b\d{1,2} (?:January|February|March|April|May|June|July|August|September|October|November|December)(?: \d{4})?\b/g;
 const first = (name: string) => name.split(" ")[0];
+const domainOf = (address: string) => address.split("@")[1]?.trim().toLowerCase();
 const dueOf = (po: LnPurchaseOrder) => po.confirmedReceiptDate || po.plannedReceiptDate || "";
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const list = (words: string[]) => (words.length < 2 ? words.join("") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`);
@@ -122,8 +123,9 @@ export function composeParts(input: ComposeInput, by: string): ComposeParts {
   const { supplier: s, order: po, message: m } = input;
   const role = STAFF.find((x) => x.name === by)?.role;
   return {
-    // A reply goes where the supplier asked for replies, which is not always the address the email came from.
-    to: m?.replyTo?.find((r) => r.address) ?? { name: s.contactName, address: s.email },
+    // A reply goes where the supplier asked for replies only if that is another mailbox of theirs. A Reply-To somewhere else
+    // is not followed: anyone can put one on an email, so the reply stays with the address Infor LN holds for the supplier.
+    to: m?.replyTo?.find((r) => r.address && domainOf(r.address) === domainOf(s.email)) ?? { name: s.contactName, address: s.email },
     greeting: `Hi ${first(s.contactName)},`,
     sign: `Kind regards,\n${by}\n${role ? `${role}, ` : ""}Cubro Ltd\nTauriko, Tauranga, New Zealand`,
     subject: m ? (/^re:/i.test(m.subject) ? m.subject : `RE: ${m.subject}`) : po ? `Purchase order ${po.order}` : "Message from Cubro Purchasing",
