@@ -295,6 +295,15 @@ describe("live Microsoft 365 connector", () => {
     expect(calls[1].url).toContain("/users/purchasing@cubro.co.nz/mailFolders/inbox/messages");
     expect(calls.at(-1)!.url).toContain("/users/marketing@cubro.co.nz/calendarView");
   });
+  it("makes a reply from the email it answers, so it lands in the same conversation", async () => {
+    const reply = { ...message, id: "AAMkReply", isDraft: true, from: undefined, subject: "RE: PO41783" };
+    const { fetchImpl, calls } = fakeFetch([token, ["/messages/AAMk1/createReply", () => reply]]);
+    const created = await createLiveM365(MS, fetchImpl).createDraft({ from: { name: "Priya Raman", address: "purchasing@cubro.co.nz" }, to: [{ name: "Helen Wu", address: "helen@supplier.co.nz" }], subject: "RE: PO41783", body: "Thank you, noted.", replyTo: "AAMk1" });
+    expect(created).toMatchObject({ id: "AAMkReply", conversationId: "c1", isDraft: true, folder: "Drafts" });
+    expect(calls[1]).toMatchObject({ method: "POST" });
+    expect(calls[1].url).toContain("/users/purchasing@cubro.co.nz/messages/AAMk1/createReply");
+    expect(JSON.parse(calls[1].body)).toEqual({ message: { subject: "RE: PO41783", toRecipients: [{ emailAddress: { name: "Helen Wu", address: "helen@supplier.co.nz" } }] }, comment: "Thank you, noted." });
+  });
   it("sends an approved email from the shared mailbox but never to a sample-data address", async () => {
     const draft = { ...message, id: "AAMkDraft", isDraft: true, from: undefined, toRecipients: [{ emailAddress: { name: "Helen Wu", address: "helen@supplier.co.nz" } }], subject: "PO41783 delivery date" };
     const { fetchImpl, calls } = fakeFetch([token, ["/messages/AAMkDraft/send", () => undefined], ["/messages", () => draft]]);

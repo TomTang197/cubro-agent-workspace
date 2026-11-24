@@ -74,7 +74,7 @@ export interface M365Connector {
   status(): Promise<ConnectorStatus>;
   listEvents(fromIso: string, toIso: string): Promise<CalendarEvent[]>;
   listMessages(folder?: MailMessage["folder"]): Promise<MailMessage[]>;
-  createDraft(msg: Omit<MailMessage, "id" | "conversationId" | "receivedDateTime" | "isDraft" | "folder" | "bodyPreview">): Promise<MailMessage>;
+  createDraft(msg: Omit<MailMessage, "id" | "conversationId" | "receivedDateTime" | "isDraft" | "folder" | "bodyPreview"> & { /** The id of the message this one answers, so it is filed in the same conversation. */ replyTo?: string }): Promise<MailMessage>;
   sendDraft(id: string): Promise<MailMessage>;
   listBrandAssets(): Promise<BrandAsset[]>;
   listTeamsPosts(): Promise<TeamsPost[]>;

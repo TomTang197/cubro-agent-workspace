@@ -1,0 +1,203 @@
+import request from "supertest";
+import { describe, expect, it } from "vitest";
+import { composeBody, composeParts, emailOptions, emailTopic, tidyOwnLine, type ComposeInput } from "../server/agents/compose";
+import { createApp } from "../server/app";
+import type { LnPurchaseOrder, MailMessage } from "../server/connectors/types";
+import { templateProvider, type LlmProvider } from "../server/llm";
+import { Store, type ApprovalItem, type SupplierEmailPayload } from "../server/store";
+
+const today = new Date("2026-11-23T00:00:00Z");
+const setup = (llm: LlmProvider = templateProvider) => { const store = new Store({ today }); return { store, app: createApp(store, { llm, env: {}, now: () => today }) }; };
+const ln = (store: Store) => store.state.systems.inforln;
+const input = (store: Store, po?: LnPurchaseOrder, message?: MailMessage, supplierId = po?.supplier): ComposeInput => {
+  const supplier = ln(store).suppliers.find((s) => s.supplier === supplierId)!;
+  return { supplier, order: po, message, orders: ln(store).purchaseOrders.filter((o) => o.supplier === supplier.supplier), items: ln(store).items, today };
+};
+const ids = (store: Store, po?: LnPurchaseOrder, message?: MailMessage, supplierId?: string) => emailOptions(input(store, po, message, supplierId ?? po?.supplier)).map((o) => o.id);
+const due = (po: LnPurchaseOrder) => po.confirmedReceiptDate ?? po.plannedReceiptDate;
+const fromSupplier = (store: Store, test: (m: MailMessage) => boolean) => store.state.systems.m365.messages.find((m) => m.folder === "Inbox" && ln(store).suppliers.some((s) => s.email === m.from.address) && test(m))!;
+
+describe("what a supplier email can say", () => {
+  it("comes from the state of the order", () => {
+    const { store } = setup();
+    const orders = ln(store).purchaseOrders;
+    const late = orders.find((po) => po.status === "Confirmed" && due(po) < "2026-11-23")!;
+    const lateOptions = emailOptions(input(store, late));
+    expect(lateOptions.map((o) => o.id)).toEqual(expect.arrayContaining(["ship-date", "tracking"]));
+    expect(lateOptions.find((o) => o.id === "ship-date")!.text).toContain(`Our purchase order ${late.order} was due`);
+    expect(lateOptions.map((o) => o.id)).not.toContain("on-track");
+
+    const onTime = orders.find((po) => po.status === "Confirmed" && due(po) > "2026-11-23")!;
+    expect(ids(store, onTime)).toContain("on-track");
+    expect(ids(store, onTime)).not.toContain("ship-date");
+
+    const unconfirmed = orders.find((po) => po.status === "Sent")!;
+    expect(ids(store, unconfirmed)).toContain("confirm-order");
+
+    const part = orders.find((po) => po.status === "Partially received")!;
+    const balance = emailOptions(input(store, part)).find((o) => o.id === "balance")!;
+    const left = part.lines.find((l) => l.received < l.quantity)!;
+    expect(balance.text).toContain(`${left.item} `);
+    expect(balance.text).toContain(`${left.quantity - left.received} of ${left.quantity} outstanding`);
+
+    // An order that has arrived leaves nothing to ask about it.
+    expect(ids(store, orders.find((po) => po.status === "Received")!)).toEqual([]);
+  });
+
+  it("answers the supplier's own email: a delay, a price rise, a closure", () => {
+    const { store } = setup();
+    const delay = fromSupplier(store, (m) => /revised delivery date/.test(m.subject));
+    expect(emailTopic(delay)).toBe("delay");
+    const po = ln(store).purchaseOrders.find((o) => delay.subject.includes(o.order))!;
+    const options = emailOptions(input(store, po, delay));
+    const newDate = /new delivery date to Tauriko is ([^.]+)\./.exec(delay.body)![1];
+    expect(options.find((o) => o.id === "accept-date")!.text).toContain(`the new delivery date of ${newDate}`);
+    expect(options.map((o) => o.id)).toEqual(expect.arrayContaining(["earlier", "firm-date"]));
+    // They have just given the new date, so it is not asked for.
+    expect(options.map((o) => o.id)).not.toContain("ship-date");
+    // What answers their email comes before what the order suggests.
+    expect(options[0].from).toBe("email");
+
+    const price = fromSupplier(store, (m) => /^Price list effective/.test(m.subject));
+    const supplier = ln(store).suppliers.find((s) => s.email === price.from.address)!;
+    const priceOptions = emailOptions(input(store, undefined, price, supplier.supplier));
+    expect(priceOptions.map((o) => o.id)).toEqual(["note-price", "hold-price", "price-list"]);
+    expect(priceOptions[0].text).toMatch(/price change of [\d.]+% from \d+ \w+ \d{4}/);
+
+    expect(emailTopic({ subject: "Christmas and New Year closure", body: "We close on 23 December and reopen on 11 January." })).toBe("closure");
+    expect(emailTopic({ subject: "Hello", body: "Do you have a new catalogue?" })).toBe("other");
+  });
+
+  it("offers what the supplier's record suggests when no order is picked", () => {
+    const { store } = setup();
+    const supplier = ln(store).suppliers.find((s) => ln(store).purchaseOrders.some((po) => po.supplier === s.supplier && po.status === "Confirmed"))!;
+    const options = emailOptions(input(store, undefined, undefined, supplier.supplier));
+    expect(options.map((o) => o.id)).toEqual(expect.arrayContaining(["open-orders", "terms"]));
+    expect(options.find((o) => o.id === "terms")!.text).toContain(`${supplier.avgLeadTimeDays} days and ${supplier.paymentTerms}`);
+    expect(options.every((o) => o.from === "supplier")).toBe(true);
+  });
+
+  it("signs with the writer's own name and job", () => {
+    const { store } = setup();
+    const parts = composeParts(input(store, ln(store).purchaseOrders[0]), "Mark Jensen");
+    expect(composeBody(parts, ["One.", "Two."])).toBe(`${parts.greeting}\n\nOne.\n\nTwo.\n\nKind regards,\nMark Jensen\nProcurement Manager, Cubro Ltd\nTauriko, Tauranga, New Zealand`);
+  });
+});
+
+describe("a person's own line", () => {
+  const polished = (reply: string | Error): LlmProvider & { seen: { task: string; draft: string; context: string }[] } => ({
+    name: "Test model", seen: [],
+    async polish(i) { this.seen.push(i); if (reply instanceof Error) throw reply; return reply; },
+  });
+
+  it("is rewritten by the model, which is told what the email already says", async () => {
+    const llm = polished("We would also be grateful if the pallets could be labelled with our order number.");
+    const out = await tidyOwnLine(llm, " 托盘上请贴我们的订单号 ", "Hi Helen,\n\nThank you for confirming PO41783.");
+    expect(out).toEqual({ text: "We would also be grateful if the pallets could be labelled with our order number." });
+    expect(llm.seen[0].draft).toBe("托盘上请贴我们的订单号");
+    expect(llm.seen[0].context).toContain("Thank you for confirming PO41783.");
+    expect(llm.seen[0].task).toMatch(/in English whatever language/);
+  });
+
+  it("is kept as typed, with a capital and a full stop, when there is no model or it fails", async () => {
+    expect(await tidyOwnLine(templateProvider, "please label the pallets", "")).toEqual({ text: "Please label the pallets." });
+    const failed = await tidyOwnLine(polished(new Error("Gemini error 503")), "please label the pallets", "");
+    expect(failed.text).toBe("Please label the pallets.");
+    expect(failed.problem).toMatch(/could not tidy the wording \(Gemini error 503\), so your line is added as you typed it/);
+  });
+
+  it("is tidied through the workspace, which refuses an empty or overlong line", async () => {
+    const { app, store } = setup(polished("Please label each pallet."));
+    const supplier = ln(store).suppliers[0].supplier;
+    const res = await request(app).post("/api/supplier-emails/tidy").send({ supplier, note: "label pallets", email: "Hi" }).expect(200);
+    expect(res.body).toEqual({ text: "Please label each pallet." });
+    await request(app).post("/api/supplier-emails/tidy").send({ supplier, note: "  " }).expect(400);
+    await request(app).post("/api/supplier-emails/tidy").send({ supplier, note: "x".repeat(601) }).expect(400);
+  });
+});
+
+describe("writing a supplier email from the options", () => {
+  it("puts the picked paragraphs and the writer's line into a draft that waits for approval", async () => {
+    const { app, store } = setup();
+    const po = ln(store).purchaseOrders.find((o) => o.status === "Confirmed" && due(o) > "2026-11-23")!;
+    const supplier = ln(store).suppliers.find((s) => s.supplier === po.supplier)!;
+    const shown = (await request(app).get(`/api/supplier-emails/options?order=${po.order}`).set("x-cubro-user", "Mark Jensen").expect(200)).body;
+    expect(shown.to).toEqual({ name: supplier.contactName, address: supplier.email });
+    expect(shown.order).toEqual({ id: po.order, status: "Confirmed" });
+    const pick = (id: string) => shown.options.find((o: { id: string }) => o.id === id);
+    const sentBefore = store.state.systems.m365.messages.length;
+
+    // Picked in the other order: the email still reads in the order the options are listed.
+    const res = await request(app).post("/api/supplier-emails").send({ user: "Mark Jensen", order: po.order, options: ["tracking", "on-track"], own: ["Please label each pallet with our order number."] }).expect(200);
+    const item = res.body as ApprovalItem, p = item.payload as SupplierEmailPayload;
+    expect(item).toMatchObject({ status: "pending", agent: "supplier-outreach", kind: "supplier_email", writtenBy: "Mark Jensen", edited: false, title: `Email to ${supplier.name} — ${po.order}` });
+    expect(p).toMatchObject({ reason: "new", purchaseOrder: po.order, supplierId: supplier.supplier, to: shown.to, subject: `${po.order} — delivery date` });
+    expect(p.body).toBe([shown.greeting, pick("on-track").text, pick("tracking").text, "Please label each pallet with our order number.", shown.sign].join("\n\n"));
+    expect(p.body).toContain("Kind regards,\nMark Jensen\nProcurement Manager, Cubro Ltd");
+    expect(item.rationale).toContain("Mark Jensen wrote this email");
+    expect(item.rationale).toContain("added a line of their own");
+    // Nothing has left: no email until someone approves it.
+    expect(store.state.systems.m365.messages.length).toBe(sentBefore);
+    expect(store.state.approvals[0].id).toBe(item.id);
+
+    // The page says a draft about this order is already waiting.
+    expect((await request(app).get(`/api/supplier-emails/options?order=${po.order}`).expect(200)).body.waiting).toEqual({ id: item.id, title: item.title });
+
+    const done = (await request(app).post(`/api/approvals/${item.id}/approve`).send({ user: "Priya Raman" }).expect(200)).body as ApprovalItem;
+    expect(done.outcome!.map((o) => o.step)).toEqual(["email", "followup"]);
+    expect(store.state.systems.m365.messages.find((m) => m.subject === p.subject && m.folder === "Sent Items")!.body).toBe(p.body);
+    expect(store.state.systems.clickup.tasks[0]).toMatchObject({ tags: ["supplier", "new", "staff-written"] });
+    expect(store.state.systems.clickup.tasks[0].description).toContain("Email written by Mark Jensen sent to");
+  });
+
+  it("sends a reply in the supplier's own conversation, under their subject", async () => {
+    const { app, store } = setup();
+    const delay = fromSupplier(store, (m) => /revised delivery date/.test(m.subject));
+    const shown = (await request(app).get(`/api/supplier-emails/options?reply=${delay.id}`).expect(200)).body;
+    expect(shown.replyTo).toMatchObject({ id: delay.id, subject: delay.subject, body: delay.body });
+    // The order is found from the email itself.
+    expect(delay.subject).toContain(shown.order.id);
+    expect(shown.subject).toBe(delay.subject);
+
+    const item = (await request(app).post("/api/supplier-emails").send({ user: "Priya Raman", reply: delay.id, options: ["accept-date"] }).expect(200)).body as ApprovalItem;
+    const p = item.payload as SupplierEmailPayload;
+    expect(p).toMatchObject({ reason: "reply", subject: delay.subject, purchaseOrder: shown.order.id, inReplyTo: { id: delay.id, from: delay.from.name } });
+    expect(p.to.address).toBe(delay.from.address);
+    expect(item.title).toMatch(/^Reply to /);
+
+    await request(app).post(`/api/approvals/${item.id}/approve`).send({ user: "Priya Raman" }).expect(200);
+    const sent = store.state.systems.m365.messages.find((m) => m.folder === "Sent Items" && m.body === p.body)!;
+    expect(sent.conversationId).toBe(delay.conversationId);
+  });
+
+  it("refuses an email that says nothing, an unknown order, and a reply to someone who is not a supplier", async () => {
+    const { app, store } = setup();
+    const po = ln(store).purchaseOrders.find((o) => o.status === "Confirmed")!;
+    const before = store.state.approvals.length;
+    expect((await request(app).post("/api/supplier-emails").send({ order: po.order, options: ["not-an-option"], own: ["  "] }).expect(400)).body.error).toMatch(/Pick at least one thing to say/);
+    await request(app).get("/api/supplier-emails/options?order=PO0").expect(404);
+    await request(app).get("/api/supplier-emails/options").expect(404);
+    const staff = store.state.systems.m365.messages.find((m) => m.folder === "Inbox" && /^Stock query/.test(m.subject))!;
+    expect((await request(app).get(`/api/supplier-emails/options?reply=${staff.id}`).expect(400)).body.error).toMatch(/is not a supplier in Infor LN/);
+    expect(store.state.approvals.length).toBe(before);
+  });
+
+  it("offers more to say on a draft the agent wrote, without the ask it already makes", async () => {
+    const { app, store } = setup();
+    const overdue = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email" && a.payload.reason === "overdue")!;
+    const options = (await request(app).get(`/api/approvals/${overdue.id}/options`).expect(200)).body as { id: string }[];
+    expect(options.map((o) => o.id)).toContain("tracking");
+    expect(options.map((o) => o.id)).not.toContain("ship-date");
+    const post = store.state.approvals.find((a) => a.payload.type === "social_post")!;
+    expect((await request(app).get(`/api/approvals/${post.id}/options`).expect(200)).body).toEqual([]);
+  });
+
+  it("marks a supplier's own emails on a record so they can be answered", async () => {
+    const { app, store } = setup();
+    const delay = fromSupplier(store, (m) => /revised delivery date/.test(m.subject));
+    const order = /PO\d+/.exec(delay.subject)![0];
+    const emails = (await request(app).get(`/api/records/order/${order}`).expect(200)).body.links.find((l: { label: string }) => l.label === "Emails").items as { title: string; reply?: string; status: string }[];
+    expect(emails.find((e) => e.title === delay.subject)).toMatchObject({ reply: delay.id });
+    expect(emails.filter((e) => e.status !== "Received").every((e) => !e.reply)).toBe(true);
+  });
+});

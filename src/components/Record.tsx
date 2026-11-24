@@ -24,7 +24,7 @@ function Linked({ item }: { item: LinkedItem }) {
   const status = item.status && <span className={`pill plain ${tone(item.status)}`}>{item.status}</span>;
   if (item.kind === "draft") return <Link className="linked go" to={`/approvals/${item.id}?status=all&view=list&agent=all`}><span>{body}</span>{status}</Link>;
   if (item.kind && item.id) return <RecordLink className="linked go" kind={item.kind} id={item.id}><span>{body}</span>{status}</RecordLink>;
-  return <div className="linked"><span>{body}</span>{status}</div>;
+  return <div className="linked"><span>{body}</span><span className="row gap">{item.reply && <Link className="btn small" to={`/write?reply=${encodeURIComponent(item.reply)}`}>Reply</Link>}{status}</span></div>;
 }
 
 /** One record with everything the other systems hold about it. */
@@ -47,6 +47,7 @@ export function RecordView({ kind, id, onClose, page }: { kind: RecordKind; id: 
       {error && <div className="error">{error} <button type="button" className="link" onClick={reload}>Try again</button></div>}
       {!d && !error && loading && <p className="muted">Looking it up in the four systems…</p>}
       {d && <>
+        {(kind === "supplier" || (kind === "order" && d.status !== "Received" && d.status !== "Closed")) && <p className="record-act"><Link className="btn" to={`/write?${kind}=${encodeURIComponent(id)}`}>{kind === "supplier" ? "Write to this supplier" : "Write to the supplier about this order"}</Link></p>}
         <dl className="facts">{d.fields.map((f) => <div key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></div>)}</dl>
         {d.links.length === 0 && <p className="muted small">Nothing in the other systems mentions this yet.</p>}
         {d.links.map((l) => (

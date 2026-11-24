@@ -38,7 +38,7 @@ export function handledSupplierKeys(approvals: ApprovalItem[], today: Date): Set
   return keys;
 }
 
-export const supplierKey = (p: Pick<SupplierEmailPayload, "reason" | "purchaseOrder" | "supplierId">) => p.reason === "low_stock" ? `low_stock:${p.supplierId}` : `po:${p.purchaseOrder}`;
+export const supplierKey = (p: Pick<SupplierEmailPayload, "reason" | "purchaseOrder" | "supplierId">) => p.reason === "low_stock" ? `low_stock:${p.supplierId}` : p.purchaseOrder ? `po:${p.purchaseOrder}` : `supplier:${p.supplierId}`;
 export const nzDate = (iso: string, weekday = false) => {
   const d = new Date(iso.slice(0, 10) + "T00:00:00Z"), fmt = (o: Intl.DateTimeFormatOptions) => d.toLocaleDateString("en-NZ", { ...o, timeZone: "UTC" });
   return weekday ? `${fmt({ weekday: "long" })} ${d.getUTCDate()} ${fmt({ month: "long" })}` : `${d.getUTCDate()} ${fmt({ month: "long" })} ${d.getUTCFullYear()}`;
@@ -84,7 +84,7 @@ export function planSupplierDrafts(d: SupplierData, settings: Settings, today: D
     const s = sup(po.supplier);
     if (!s) continue;
     const due = po.confirmedReceiptDate ?? po.plannedReceiptDate;
-    let reason: SupplierEmailPayload["reason"] | undefined;
+    let reason: "overdue" | "partial" | "unconfirmed" | undefined;
     // The balance of a part delivery is only chased once the order's due date has passed.
     if (po.status === "Partially received") reason = due < t ? "partial" : undefined;
     else if (due < grace) reason = "overdue";

@@ -23,6 +23,8 @@ export interface ApprovalItem {
   payload: SocialPostPayload | SupplierEmailPayload;
   originalPayload: SocialPostPayload | SupplierEmailPayload;
   estimate: { manualMinutes: number; reviewMinutes: number };
+  /** The person who wrote this with the assistant, by picking what the email should say. Not set on a draft an agent run made. */
+  writtenBy?: string;
   /** What approving has done so far. A step that is listed is not repeated when an approval that failed part-way is tried again. */
   outcome?: { system: string; ref: string; label: string; step?: string; at?: string; by?: string }[];
 }
@@ -51,11 +53,14 @@ export interface SupplierEmailPayload {
   to: { name: string; address: string };
   subject: string;
   body: string;
-  reason: "overdue" | "unconfirmed" | "low_stock" | "partial";
+  /** Why an agent drafted it, or `reply` / `new` for an email a person wrote with the assistant. */
+  reason: "overdue" | "unconfirmed" | "low_stock" | "partial" | "reply" | "new";
   purchaseOrder?: string;
   items: string[];
   /** The reply-by date written into the body (YYYY-MM-DD), so a draft approved late can be flagged. */
   replyBy?: string;
+  /** The supplier's email this one answers. It is sent as a reply in the same conversation. */
+  inReplyTo?: { id: string; subject: string; from: string; receivedDateTime: string; body: string };
 }
 
 export interface AgentRun {

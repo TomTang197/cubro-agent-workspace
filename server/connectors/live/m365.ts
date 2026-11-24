@@ -99,7 +99,11 @@ export function createLiveM365(env: Env, fetchImpl: FetchLike = fetch): M365Conn
     async createDraft(msg) {
       const sample = msg.to.find((t) => isSampleAddress(t.address));
       if (sample) throw new ConnectorError("m365", `${sample.address} is a sample-data address. The live mailbox only sends to real addresses, so connect Infor LN before sending supplier emails.`);
-      const created = await graph<GraphMessage>(`${mailbox()}/messages`, { method: "POST", headers: mailHeaders, body: { subject: msg.subject, body: { contentType: "Text", content: msg.body }, toRecipients: msg.to.map((t) => ({ emailAddress: t })) } });
+      const toRecipients = msg.to.map((t) => ({ emailAddress: t }));
+      // A reply is made from the message it answers, so Outlook files it in that conversation and quotes the original under our text.
+      const created = msg.replyTo
+        ? await graph<GraphMessage>(`${mailbox()}/messages/${encodeURIComponent(msg.replyTo)}/createReply`, { method: "POST", headers: mailHeaders, body: { message: { subject: msg.subject, toRecipients }, comment: msg.body } })
+        : await graph<GraphMessage>(`${mailbox()}/messages`, { method: "POST", headers: mailHeaders, body: { subject: msg.subject, body: { contentType: "Text", content: msg.body }, toRecipients } });
       return toMessage(created, "Drafts");
     },
     async sendDraft(id) {

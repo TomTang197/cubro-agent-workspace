@@ -3,6 +3,7 @@ import { addDays, isoDate } from "../data/rng.js";
 import type { LlmProvider } from "../llm/index.js";
 import { savingFor } from "../savings.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
+import { composeDraft, composeParts, composeSubject, emailOptions, MAX_OWN_LINE, orderIn, tidyOwnLine, type ComposeInput } from "./compose.js";
 import { FOLLOW_UP_DAYS, handledSupplierKeys, nzDate, nzDay as nzMidnight, planSupplierDrafts, RECENT_REPLY_DAYS, supplierRunSummary, type Draft, type SupplierPlan } from "./drafts.js";
 import { dateProblem, nzClock, nzDay, nzTime, shiftDay, shortDay } from "./nzTime.js";
 import { EVENT_LEAD_DAYS, buildSocialDrafts, busySocialSlots, socialBrief, takenSocialTopics } from "./social.js";
@@ -105,6 +106,73 @@ export class AgentService {
     this.store.log(triggeredBy, "ran agent", `${AGENTS[agent].name}: ${run.summary}`);
     this.store.save();
     return run;
+  }
+
+  /** What an email a person is writing is about: the supplier, and the order or the supplier's email if one was picked. */
+  private async composeInput(q: ComposeQuery): Promise<ComposeInput> {
+    const [suppliers, purchaseOrders, items] = await Promise.all([this.connectors.inforln.listSuppliers(), this.connectors.inforln.listPurchaseOrders(), this.connectors.inforln.listItems()]);
+    const message = q.reply ? (await this.connectors.m365.listMessages("Inbox")).find((m) => m.id === q.reply) : undefined;
+    if (q.reply && !message) throw new HttpError(404, "That email is not in the purchasing inbox any more.");
+    const named = q.order ? purchaseOrders.find((po) => po.order === q.order) : undefined;
+    if (q.order && !named) throw new HttpError(404, `Purchase order ${q.order} is not in Infor LN.`);
+    const supplier = suppliers.find((s) => (message ? s.email.toLowerCase() === message.from.address.toLowerCase() : s.supplier === (named?.supplier ?? q.supplier)));
+    if (!supplier) throw new HttpError(message ? 400 : 404, message ? `${message.from.name || message.from.address} is not a supplier in Infor LN, so this email cannot be answered from here.` : "That supplier is not in Infor LN.");
+    if (!supplier.email) throw new HttpError(400, `${supplier.name} has no email address in Infor LN.`);
+    if (named && named.supplier !== supplier.supplier) throw new HttpError(400, `${named.order} was not placed with ${supplier.name}.`);
+    const orders = purchaseOrders.filter((po) => po.supplier === supplier.supplier);
+    return { supplier, order: named ?? (message ? orderIn(message, orders) : undefined), message, orders, items, today: this.now() };
+  }
+
+  /** Everything the writing page shows before anything is picked. */
+  async composeOptions(q: ComposeQuery, by: string) {
+    const input = await this.composeInput(q);
+    const { supplier: s, order: po, message: m } = input;
+    const parts = composeParts(input, by);
+    const waiting = this.store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email" && (po ? a.payload.purchaseOrder === po.order : !!m && a.payload.inReplyTo?.id === m.id));
+    return {
+      ...parts,
+      supplier: { id: s.supplier, name: s.name },
+      order: po && { id: po.order, status: po.status },
+      // Open orders first, so the one being chased is near the top of the picker.
+      orders: input.orders.filter((o) => !["Received", "Closed"].includes(o.status)).map((o) => ({ id: o.order, status: o.status })),
+      replyTo: m && { id: m.id, subject: m.subject, from: m.from.name, receivedDateTime: m.receivedDateTime, body: m.body },
+      waiting: waiting && { id: waiting.id, title: waiting.title },
+    };
+  }
+
+  /** The options for adding to a supplier email that is already waiting, leaving out what it says already. */
+  async draftOptions(id: string) {
+    const a = this.find(id);
+    if (a.payload.type !== "supplier_email") return [];
+    const p = a.payload;
+    const input = await this.composeInput({ supplier: p.supplierId, order: p.purchaseOrder, reply: p.inReplyTo?.id }).catch((e) => { if (e instanceof HttpError) return undefined; throw e; });
+    if (!input) return [];
+    // An agent draft already makes the ask it was written for.
+    const made: string[] = { overdue: ["ship-date"], unconfirmed: ["confirm-order"], partial: ["balance"], low_stock: ["availability", "terms"], reply: [], new: [] }[p.reason];
+    return emailOptions(input).filter((o) => !made.includes(o.id));
+  }
+
+  async tidy(note: unknown, emailSoFar: unknown) {
+    if (typeof note !== "string" || !note.trim()) throw new HttpError(400, "Write your line first.");
+    if (note.length > MAX_OWN_LINE) throw new HttpError(400, `Keep your own line under ${MAX_OWN_LINE} characters.`);
+    return tidyOwnLine(this.llm, note, typeof emailSoFar === "string" ? emailSoFar.slice(0, 6000) : "");
+  }
+
+  /** Saves an email a person wrote from the options as a draft to check. Nothing is sent until it is approved. */
+  async write(q: ComposeQuery, by: string, picked: unknown, own: unknown) {
+    const state = this.store.state;
+    const ids = Array.isArray(picked) ? picked.map(String) : [];
+    const lines = (Array.isArray(own) ? own : []).map((l) => String(l).trim()).filter(Boolean);
+    if (lines.some((l) => l.length > MAX_OWN_LINE * 3)) throw new HttpError(400, "One of your own lines is too long.");
+    const input = await this.composeInput(q);
+    const draft = composeDraft(input, by, ids, lines);
+    if (!lines.length && !emailOptions(input).some((o) => ids.includes(o.id))) throw new HttpError(400, "Pick at least one thing to say, or add a line of your own.");
+    this.unlessRestored(state);
+    const a = toApproval(draft, "", new Date().toISOString(), this.store.nextId("apr"));
+    this.store.state.approvals.unshift(a);
+    this.store.log(by, "wrote draft", a.title);
+    this.store.save();
+    return a;
   }
 
   find(id: string) {
@@ -231,7 +299,7 @@ export class AgentService {
       const p = a.payload;
       if (!did("email")) {
         if (!did("draft")) {
-          const draft = await this.connectors.m365.createDraft({ from: { name: this.store.state.settings.supplier.sender, address: "purchasing@cubro.co.nz" }, to: [p.to], subject: p.subject, body: p.body });
+          const draft = await this.connectors.m365.createDraft({ from: { name: this.store.state.settings.supplier.sender, address: "purchasing@cubro.co.nz" }, to: [p.to], subject: p.subject, body: p.body, replyTo: p.inReplyTo?.id });
           record("draft", "Microsoft 365", draft.id, `Email to ${p.to.address} saved as a draft in the purchasing mailbox, not sent yet`);
         }
         const sent = await this.connectors.m365.sendDraft(did("draft")!.ref);
@@ -241,8 +309,8 @@ export class AgentService {
         // Dated from when the email went, which is earlier than today if this approval is being finished later.
         const sentOn = nzMidnight(new Date(did("email")?.at ?? Date.now())), due = isoDate(addDays(sentOn, FOLLOW_UP_DAYS));
         const task = await this.connectors.clickup.createTask({
-          name: `Chase reply: ${p.supplierName} — ${p.purchaseOrder ?? p.subject}`, description: `Agent email sent to ${p.to.name} <${p.to.address}> on ${nzDate(isoDate(sentOn))}. Follow up if no reply.`,
-          list: "Purchasing", assignees: [by], due_date: due, tags: ["supplier", p.reason, "agent-drafted"],
+          name: `Chase reply: ${p.supplierName} — ${p.purchaseOrder ?? p.subject}`, description: `${a.writtenBy ? `Email written by ${a.writtenBy}` : "Agent email"} sent to ${p.to.name} <${p.to.address}> on ${nzDate(isoDate(sentOn))}. Follow up if no reply.`,
+          list: "Purchasing", assignees: [by], due_date: due, tags: ["supplier", p.reason, a.writtenBy ? "staff-written" : "agent-drafted"],
         });
         record("followup", "ClickUp", task.url, `Follow-up task ${task.id} in Purchasing, due ${nzDate(task.due_date ?? due)}`);
       }
@@ -273,6 +341,8 @@ export class AgentService {
     this.store.state.savings.unshift({ id: this.store.nextId("sav"), ...savingFor(a, this.store.state.settings.hourlyRates[a.agent]) });
   }
 }
+
+export interface ComposeQuery { supplier?: string; order?: string; reply?: string }
 
 export function toApproval(d: Draft, runId: string, createdAt: string, id: string): ApprovalItem {
   return { ...d, id, runId, status: "pending", createdAt, edited: false, originalPayload: structuredClone(d.payload) };

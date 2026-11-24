@@ -11,7 +11,7 @@ export const isRecordKind = (s: string): s is RecordKind => (RECORD_KINDS as rea
 /** A record in a list or a search result. `sort` holds the values its list can be ordered by. */
 export interface RecordRow { kind: RecordKind; id: string; title: string; subtitle: string; system: string; status?: string; tone?: "ok" | "warn" | "bad"; sort: Record<string, string | number>; }
 /** Something a record is linked to. With a `kind` it opens as a record; a draft opens in Drafts to check; an email or task is shown where it is. */
-export interface LinkedItem { kind?: RecordKind | "draft"; id?: string; title: string; subtitle?: string; status?: string; }
+export interface LinkedItem { kind?: RecordKind | "draft"; id?: string; title: string; subtitle?: string; status?: string; /** On an email a supplier sent: its id, so it can be answered. */ reply?: string; }
 export interface RecordDetail extends Omit<RecordRow, "sort"> { fields: { label: string; value: string }[]; links: { label: string; system: string; items: LinkedItem[] }[]; }
 export interface SearchHit { kind: RecordKind | "draft"; id: string; title: string; subtitle: string; system: string; }
 
@@ -78,7 +78,7 @@ export async function listRecords(c: Connectors, kind: RecordKind, now = new Dat
   return rows(await load(c), nzDay(now)).filter((r) => r.kind === kind);
 }
 
-const draftItem = (a: ApprovalItem): LinkedItem => ({ kind: "draft", id: a.id, title: a.title, subtitle: `${AGENTS[a.agent].name} draft`, status: a.status === "pending" ? "Waiting" : a.status === "approved" ? "Approved" : "Sent back" });
+const draftItem = (a: ApprovalItem): LinkedItem => ({ kind: "draft", id: a.id, title: a.title, subtitle: a.writtenBy ? `Written by ${a.writtenBy}` : `${AGENTS[a.agent].name} draft`, status: a.status === "pending" ? "Waiting" : a.status === "approved" ? "Approved" : "Sent back" });
 const mailItem = (m: MailMessage): LinkedItem => ({ title: m.subject, subtitle: `${m.folder === "Inbox" ? `From ${m.from.name}` : `To ${m.to.map((t) => t.name || t.address).join(", ")}`} · ${shortDate(m.receivedDateTime)}`, status: m.folder === "Inbox" ? "Received" : m.folder === "Drafts" ? "Draft" : "Sent" });
 const taskItem = (t: ClickUpTask): LinkedItem => ({ title: t.name, subtitle: `${t.list} list${t.assignees.length ? ` · ${t.assignees.join(", ")}` : ""}${t.due_date ? ` · due ${shortDate(t.due_date)}` : ""}`, status: t.status });
 const newest = <T,>(list: T[], at: (x: T) => string, max = 8) => [...list].sort((a, b) => at(b).localeCompare(at(a))).slice(0, max);
@@ -89,7 +89,8 @@ export async function recordDetail(c: Connectors, approvals: ApprovalItem[], kin
   if (!row) return undefined;
   const { sort: _sort, ...base } = row;
   const byRow = (k: RecordKind, ids: string[]): LinkedItem[] => rows(d, today).filter((r) => r.kind === k && ids.includes(r.id)).map((r) => ({ kind: r.kind, id: r.id, title: r.title, subtitle: r.subtitle, status: r.status }));
-  const mailAbout = (words: string[], addresses: string[] = []) => newest(d.messages.filter((m) => addresses.some((a) => a && (m.from.address === a || m.to.some((t) => t.address === a))) || words.some((w) => mentions(`${m.subject} ${m.body}`, w))), (m) => m.receivedDateTime).map(mailItem);
+  const fromSupplier = new Set(kind === "supplier" || kind === "order" ? d.suppliers.map((s) => s.email.toLowerCase()).filter(Boolean) : []);
+  const mailAbout = (words: string[], addresses: string[] = []) => newest(d.messages.filter((m) => addresses.some((a) => a && (m.from.address === a || m.to.some((t) => t.address === a))) || words.some((w) => mentions(`${m.subject} ${m.body}`, w))), (m) => m.receivedDateTime).map((m) => ({ ...mailItem(m), ...(m.folder === "Inbox" && fromSupplier.has(m.from.address.toLowerCase()) && { reply: m.id }) }));
   const tasksAbout = (words: string[], not?: Set<ClickUpTask>) => d.tasks.filter((t) => !not?.has(t) && words.some((w) => mentions(`${t.name} ${t.description}`, w))).slice(0, 8).map(taskItem);
   const links: RecordDetail["links"] = [];
   const link = (label: string, system: string, items: LinkedItem[]) => { if (items.length) links.push({ label, system, items }); };
@@ -187,7 +188,7 @@ export async function searchRecords(c: Connectors, approvals: ApprovalItem[], q:
 }
 
 /** One line of the activity record: who did what, and for an approval, which systems it went to. */
-export interface ActivityLine { id: string; at: string; actor: string; /** `part_done`: approving began and some steps went out, but a later step failed and the draft still waits. */ kind: "approved" | "part_done" | "sent_back" | "asked" | "changed" | "admin"; what: string; went: { system: string; label: string }[]; approvalId?: string; agent?: AgentId; note?: string; }
+export interface ActivityLine { id: string; at: string; actor: string; /** `part_done`: approving began and some steps went out, but a later step failed and the draft still waits. */ kind: "approved" | "part_done" | "sent_back" | "asked" | "wrote" | "changed" | "admin"; what: string; went: { system: string; label: string }[]; approvalId?: string; agent?: AgentId; note?: string; }
 
 /** Where an approved draft went. Each step is recorded as it happens; sample history from before that is described by what approving that kind of draft does. */
 export function wentTo(a: ApprovalItem): { system: string; label: string }[] {
@@ -215,8 +216,8 @@ export function activityRecord(state: WorkspaceState): ActivityLine[] {
   });
   const asked = state.runs.map((r): ActivityLine => ({ id: `run-${r.id}`, at: r.finishedAt, actor: r.triggeredBy === "Schedule" ? AGENTS[r.agent].name : r.triggeredBy, kind: "asked", what: r.summary, went: [], agent: r.agent }));
   const other = state.activity.filter((e) => !["approved", "rejected", "ran agent"].includes(e.action)).map((e): ActivityLine => ({
-    id: e.id, at: e.at, actor: e.actor, kind: e.action === "edited draft" ? "changed" : "admin",
-    what: e.action === "edited draft" ? e.detail : `${e.action[0].toUpperCase()}${e.action.slice(1)}: ${e.detail}`, went: [],
+    id: e.id, at: e.at, actor: e.actor, kind: e.action === "edited draft" ? "changed" : e.action === "wrote draft" ? "wrote" : "admin",
+    what: e.action === "edited draft" || e.action === "wrote draft" ? e.detail : `${e.action[0].toUpperCase()}${e.action.slice(1)}: ${e.detail}`, went: [],
   }));
   return [...decisions, ...partDone, ...asked, ...other].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 300);
 }

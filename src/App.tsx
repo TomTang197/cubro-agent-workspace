@@ -16,6 +16,7 @@ import Savings from "./pages/Savings";
 import Systems from "./pages/Systems";
 import SettingsPage from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import Write from "./pages/Write";
 
 type Item = { to: string; label: string; icon: keyof typeof ICONS; end?: boolean };
 // The menu is grouped by what staff come here to do: their own work, looking something up, and how the team is going.
@@ -69,7 +70,7 @@ export default function App() {
     catch (e) { setRestartError(e instanceof Error ? e.message : String(e)); setRestarting(false); }
   };
   useEffect(() => {
-    const page = [...NAV, ...ADMIN].find((n) => ("end" in n && n.end ? pathname === n.to : pathname.startsWith(n.to)));
+    const page = [...NAV, ...ADMIN, { to: "/write", label: "Write to a supplier" }].find((n) => ("end" in n && n.end ? pathname === n.to : pathname.startsWith(n.to)));
     document.title = `${page?.label ?? "Page not found"} · Cubro Agent Workspace`;
     recount();
   }, [pathname]);
@@ -155,6 +156,7 @@ export default function App() {
             <Route path="/" element={<Overview />} />
             <Route path="/approvals" element={<Approvals />} />
             <Route path="/approvals/:id" element={<Approvals />} />
+            <Route path="/write" element={<Write />} />
             <Route path="/records/:kind" element={<Records />} />
             <Route path="/records/:kind/:id" element={<Records />} />
             <Route path="/activity" element={<Activity />} />

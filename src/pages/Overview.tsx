@@ -37,6 +37,7 @@ export default function Overview() {
     finally { setBusy(false); }
   }
   const askForMore = <button type="button" className={waiting.length ? "btn" : "btn primary big"} disabled={busy || !assistant.enabled} onClick={getDrafts}>{busy ? "Drafting…" : waiting.length ? "Ask for more drafts" : `Ask for new ${DRAFT_NOUN[mine][1]}`}</button>;
+  const writeOwn = mine === "supplier-outreach" && <Link className="btn" to="/write">Write a supplier email yourself</Link>;
   const step = waiting.length ? 2 : 1;
 
   return (
@@ -50,13 +51,13 @@ export default function Overview() {
             <h2>{noun(waiting.length)} {waiting.length === 1 ? "is" : "are"} waiting for you to check</h2>
             <p>{urgent > 0 ? `${urgent} ${urgent === 1 ? "is" : "are"} urgent and come${urgent === 1 ? "s" : ""} first. ` : ""}They open one at a time, about {hm(waiting.reduce((n, a) => n + a.estimate.reviewMinutes, 0))} to read them all.</p>
             <ul className="todo-list">{waiting.slice(0, 3).map((a) => <li key={a.id}><Link to={`/approvals/${a.id}?agent=${mine}`}>{a.title}</Link>{a.priority === "high" && <span className="pill warn">Urgent</span>}</li>)}{waiting.length > 3 && <li className="muted">and {waiting.length - 3} more</li>}</ul>
-            <div className="row gap wrap"><Link className="btn primary big" to={`/approvals?agent=${mine}`}>{waiting.length === 1 ? "Check it now" : "Check the first one"}</Link></div>
+            <div className="row gap wrap"><Link className="btn primary big" to={`/approvals?agent=${mine}`}>{waiting.length === 1 ? "Check it now" : "Check the first one"}</Link>{writeOwn}</div>
           </> : <>
             <h2>Nothing is waiting for you</h2>
             {assistant.enabled
               ? <p>You're up to date. Ask {AGENT_NAMES[mine]} to look for anything new; it takes a few seconds and whatever it drafts comes back here for you to check.</p>
               : <p>{AGENT_NAMES[mine]} is paused, so it is not drafting anything new. {assistant.owner} looks after it and can switch it back on in <Link to="/settings">Settings</Link>.</p>}
-            {assistant.enabled && <div className="row gap wrap">{askForMore}</div>}
+            <div className="row gap wrap">{assistant.enabled && askForMore}{writeOwn}</div>
           </>}
           {ran && <div className={ran.ok ? "banner" : "error"} role="status">{ran.text}</div>}
         </section>
