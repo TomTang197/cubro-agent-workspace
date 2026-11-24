@@ -65,8 +65,8 @@ const NAMED_ORDER = new RegExp(String.raw`(?<![\p{L}\p{N}])${ORDER_WORDS}(\d{4,}
 const ARRIVES = /deliver|arriv|\bdue\b|\beta\b|receipt|receive|\bland|in stock|at (?:your|our|the) (?:warehouse|dock|door)|to tauriko|\bneed (?:this|it|them|these)\b/i;
 const LEAVES = /\bship|dispatch|despatch|\bleav|ex[\s-]?works|depart|\bsail|collect|pick(?:ed)?[\s-]?up/i;
 const PART = /\b(?:part|partial|balance|remaining|remainder|rest|back[\s-]?order(?:ed)?|first|so far|short|to follow|will follow|outstanding)\b/i;
-// What sets one item's figures apart from the next item's in a sentence.
-const APART = /[,;]|\b(?:and|but|plus)\b/i;
+// "40 x 98100", "30 units of 98100", "NZD 55.50 per ZZ200": the figure names its item next.
+const ITEM_NEXT = /^\s?(?:[xX×]|of|for|per)?\s?(?:the |each |every |our |your )?$/;
 const UNIT_PRICE_BEFORE = /(?:@\s*|\b(?:price|priced|cost|costs|rate|charge)\b[^.\n]{0,40})$/i, UNIT_PRICE_AFTER = /^\s?(?:each\b|ea\b|per\s|\/\s?(?:unit|ea|pc|piece))/i;
 
 const safe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -150,13 +150,14 @@ export function keyFacts(full: string, ctx: FactContext, extra: Candidate[] = []
   // A fact is about the order named last before it. Under another order's number it is not compared with this one.
   const ours = (s: Span) => { const named = spans.filter((o) => o.kind === "order" && o.end <= s.start).at(-1); return !named || orderFor(named)?.order === po?.order; };
   // The order line a quantity or a price is about: the item named in the same sentence, else the order's only line.
-  // Of the items before and after it, the one on its own side of a comma or an "and" wins: "98100: 40 units, ZZ200: 10 units".
-  const lineFor = (s: Span, first: "after" | "before"): LnPurchaseOrderLine | undefined => {
+  // Where the sentence names several items, the figure goes with the item straight after it ("40 x 98100"); failing that, a sentence
+  // that puts such figures before its first item keeps doing so, and any other sentence puts them after ("98100: 40 units, ZZ200: 10 units").
+  const lineFor = (s: Span): LnPurchaseOrderLine | undefined => {
     if (!po) return undefined;
     const { from, to } = sentence(text, s.start, s.end), items = spans.filter((i) => i.kind === "item" && i.start >= from && i.end <= to && itemFor(i));
     const after = items.find((i) => i.start >= s.end), before = items.filter((i) => i.end <= s.start).at(-1);
-    const apart = (i: Span) => APART.test(i.start >= s.end ? text.slice(s.end, i.start) : text.slice(i.end, s.start));
-    const [one, two] = first === "after" ? [after, before] : [before, after], item = one && two && apart(one) && !apart(two) ? two : one ?? two;
+    const next = after && (ITEM_NEXT.test(text.slice(s.end, after.start)) || spans.some((o) => o.kind === s.kind && o.start >= from && o.end <= items[0].start));
+    const item = next ? after : before ?? after;
     return item ? po.lines.find((l) => l.item === itemFor(item)!.item) : items.length || po.lines.length !== 1 ? undefined : po.lines[0];
   };
   type Read = { key: string; about?: string; check?: "same" | "differs"; record?: string };
@@ -175,7 +176,7 @@ export function keyFacts(full: string, ctx: FactContext, extra: Candidate[] = []
       return { key: i.item, about: w.toLowerCase() === i.description.toLowerCase() ? i.item : i.description, ...(po && on ? { check: "same", record: `on ${po.order}` } : po && !otherOrder ? { check: "differs", record: `not on ${po.order}` } : {}) };
     }
     if (s.kind === "quantity") {
-      const q = number(w), l = ours(s) ? lineFor(s, "after") : undefined;
+      const q = number(w), l = ours(s) ? lineFor(s) : undefined;
       if (!l || Number.isNaN(q)) return { key: String(q) };
       const key = `${q} ${l.item}`, about = l.item, { from, to } = sentence(text, s.start, s.end);
       if (q === l.quantity) return { key, about, check: "same", record: "the quantity ordered" };
@@ -203,7 +204,7 @@ export function keyFacts(full: string, ctx: FactContext, extra: Candidate[] = []
       if (!po || !ours(s) || /%$/.test(w)) return { key };
       const code = /NZD|AUD|USD|EUR|GBP|CNY/.exec(w)?.[0] ?? (/RMB/.test(w) ? "CNY" : /NZ\$/.test(w) ? "NZD" : /AU\$/.test(w) ? "AUD" : /US\$/.test(w) ? "USD" : w.includes("€") ? "EUR" : w.includes("£") ? "GBP" : undefined);
       if (code && code !== po.currency) return { key, check: "differs", record: `order is in ${po.currency}` };
-      const amount = number(w), l = lineFor(s, "before"), about = l?.item;
+      const amount = number(w), l = lineFor(s), about = l?.item;
       if (l && near(amount, l.price)) return { key: `${key} ${l.item}`, about, check: "same", record: "the price on the order" };
       if (l && near(amount, l.price * l.quantity)) return { key: `${key} ${l.item}`, about, check: "same", record: "the line total on the order" };
       if (near(amount, po.lines.reduce((sum, x) => sum + x.price * x.quantity, 0))) return { key, check: "same", record: "the order total" };

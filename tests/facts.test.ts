@@ -69,6 +69,15 @@ describe("key facts in an email", () => {
     const priced = "PO50001: 40 x 98100 Caro bed @ NZD 2890.00, 10 x ZZ200 @ NZD 55.50 and nothing else.";
     expect(read(priced).facts.filter((f) => f.check !== "same")).toEqual([]);
     expect(fact("PO50001: 98100 40 units and ZZ200 12 units.", "12 units")).toMatchObject({ about: "ZZ200", check: "differs", record: "order says 10" });
+    // A comma or an "and" inside a description does not hand the price to the next item.
+    const quote = "PO50001: 40 x 98100 Caro bed, electric and low @ NZD 2890.00 / 10 x ZZ200 @ NZD 55.50";
+    expect(read(quote).facts.filter((f) => f.check !== "same")).toEqual([]);
+    expect(fact(quote, "NZD 2890.00")).toMatchObject({ about: "98100" });
+    const mixed = "PO50001: 98100 is short, so we can send 30 units now and 10 units of ZZ200, at NZD 55.50 for ZZ200.";
+    expect(fact(mixed, "30 units")).toEqual({ kind: "quantity", text: "30 units", about: "98100", record: "of 40 ordered" });
+    expect(fact(mixed, "10 units")).toMatchObject({ about: "ZZ200", check: "same" });
+    expect(fact(mixed, "NZD 55.50")).toMatchObject({ about: "ZZ200", check: "same" });
+    expect(fact("PO50001: NZD 2890.00 for 98100 and NZD 60.00 each for ZZ200.", "NZD 60.00")).toMatchObject({ about: "ZZ200", check: "differs" });
     // Two orders in one email: what stands under the other order's number is listed but not held against this one.
     const two = "We confirm both orders.\nPO50001:\n  40 x 98100 @ NZD 2890.00\nPO50002:\n  5 x 98100 @ NZD 2950.00, delivery on 20 December 2026\n  3 x ZZ200";
     expect(read(two).facts.filter((f) => f.check === "differs")).toEqual([]);
