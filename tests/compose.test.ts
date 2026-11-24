@@ -216,6 +216,14 @@ describe("writing a supplier email from the options", () => {
     expect((await request(app).get(`/api/supplier-emails/options?reply=${price.id}`).expect(200)).body.order).toBeUndefined();
     expect((await request(app).get(`/api/supplier-emails/options?reply=${price.id}&order=${other.order}`).expect(200)).body.order).toBeUndefined();
     expect((await request(app).get(`/api/supplier-emails/options?reply=${price.id}&order=${own.order}`).expect(200)).body.order.id).toBe(own.order);
+    // The order whose page the reply was opened from stands in only where the email names none, and only if it is this supplier's.
+    expect((await request(app).get(`/api/supplier-emails/options?reply=${price.id}&near=${own.order}`).expect(200)).body.order.id).toBe(own.order);
+    expect((await request(app).get(`/api/supplier-emails/options?reply=${price.id}&near=${other.order}`).expect(200)).body.order).toBeUndefined();
+    // A delay notice is about the order it names, even opened from another of the supplier's orders, until the writer picks one.
+    const delayed = ln(store).purchaseOrders.find((o) => o.order === shown.order.id)!;
+    const sibling = ln(store).purchaseOrders.find((o) => o.supplier === delayed.supplier && o.order !== delayed.order)!;
+    expect((await request(app).get(`/api/supplier-emails/options?reply=${delay.id}&near=${sibling.order}`).expect(200)).body.order.id).toBe(delayed.order);
+    expect((await request(app).get(`/api/supplier-emails/options?reply=${delay.id}&order=${sibling.order}`).expect(200)).body.order.id).toBe(sibling.order);
 
     const item = (await request(app).post("/api/supplier-emails").send({ user: "Priya Raman", reply: delay.id, options: ["accept-date"] }).expect(200)).body as ApprovalItem;
     const p = item.payload as SupplierEmailPayload;

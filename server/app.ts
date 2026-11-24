@@ -106,7 +106,7 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
   api.get("/approvals/:id", wrap((req) => agents.find(req.params.id)));
   api.get("/approvals/:id/options", wrap((req) => agents.draftOptions(req.params.id)));
   // Supplier emails a person writes with the assistant: pick what to say, add a line of your own, and it goes to Drafts to check.
-  const about = (from: Record<string, unknown>) => ({ supplier: text(from.supplier), order: text(from.order), reply: text(from.reply) });
+  const about = (from: Record<string, unknown>) => ({ supplier: text(from.supplier), order: text(from.order), reply: text(from.reply), near: text(from.near) });
   api.get("/supplier-emails/options", wrap((req) => agents.composeOptions(about(req.query), user(req))));
   api.post("/supplier-emails/tidy", wrap((req) => agents.tidy(req.body?.note, req.body?.email)));
   api.post("/supplier-emails", wrap((req) => agents.write(about(req.body ?? {}), user(req), req.body?.options, req.body?.own)));

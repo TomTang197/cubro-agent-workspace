@@ -122,7 +122,10 @@ export class AgentService {
     const theirs = named?.supplier === supplier.supplier ? named : undefined;
     if (named && !theirs && !message) throw new HttpError(400, `${named.order} was not placed with ${supplier.name}.`);
     const orders = purchaseOrders.filter((po) => po.supplier === supplier.supplier);
-    return { supplier, order: theirs ?? (message ? orderIn(message, orders) : undefined), message, orders, items, today: this.now() };
+    // The order the writer picked comes first, then the one the email names. The order whose page the email was opened from
+    // is only where the reply started, so it counts last: an email shown there can be about another of the supplier's orders.
+    const near = orders.find((po) => po.order === q.near);
+    return { supplier, order: theirs ?? (message ? orderIn(message, orders) ?? near : undefined), message, orders, items, today: this.now() };
   }
 
   /** Everything the writing page shows before anything is picked. */
@@ -347,7 +350,8 @@ export class AgentService {
   }
 }
 
-export interface ComposeQuery { supplier?: string; order?: string; reply?: string }
+/** `order` is the order the writer picked; `near` is the order whose page a reply was opened from, used only if the email names none. */
+export interface ComposeQuery { supplier?: string; order?: string; reply?: string; near?: string }
 
 export function toApproval(d: Draft, runId: string, createdAt: string, id: string): ApprovalItem {
   return { ...d, id, runId, status: "pending", createdAt, edited: false, originalPayload: structuredClone(d.payload) };

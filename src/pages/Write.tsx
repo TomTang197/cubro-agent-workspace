@@ -8,7 +8,7 @@ import { useApi } from "../useApi";
 /** A supplier email written by picking what it should say. It is saved as a draft to check; nothing is sent from this page. */
 export default function Write() {
   const [params, setParams] = useSearchParams();
-  const about = { supplier: params.get("supplier") ?? "", order: params.get("order") ?? "", reply: params.get("reply") ?? "" };
+  const about = { supplier: params.get("supplier") ?? "", order: params.get("order") ?? "", reply: params.get("reply") ?? "", near: params.get("near") ?? "" };
   const query = Object.entries(about).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
   const { data: suppliers, error: listError } = useApi<RecordRow[]>(query ? null : "/records/supplier");
   const { data, error, dataPath } = useApi<Compose>(query ? `/supplier-emails/options?${query}` : null);
@@ -30,7 +30,7 @@ export default function Write() {
   );
 }
 
-function Composer({ data, about, onOrder }: { data: Compose; about: { supplier: string; order: string; reply: string }; onOrder: (order: string) => void }) {
+function Composer({ data, about, onOrder }: { data: Compose; about: { supplier: string; order: string; reply: string; near: string }; onOrder: (order: string) => void }) {
   const nav = useNavigate();
   const [picked, setPicked] = useState<string[]>([]);
   const [own, setOwn] = useState<string[]>([]);

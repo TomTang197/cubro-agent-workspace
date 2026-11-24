@@ -24,7 +24,7 @@ function Linked({ item, order }: { item: LinkedItem; order?: string }) {
   const status = item.status && <span className={`pill plain ${tone(item.status)}`}>{item.status}</span>;
   if (item.kind === "draft") return <Link className="linked go" to={`/approvals/${item.id}?status=all&view=list&agent=all`}><span>{body}</span>{status}</Link>;
   if (item.kind && item.id) return <RecordLink className="linked go" kind={item.kind} id={item.id}><span>{body}</span>{status}</RecordLink>;
-  return <div className="linked"><span>{body}</span><span className="row gap">{item.reply && <Link className="btn small" to={`/write?reply=${encodeURIComponent(item.reply)}${order ? `&order=${encodeURIComponent(order)}` : ""}`}>Reply</Link>}{status}</span></div>;
+  return <div className="linked"><span>{body}</span><span className="row gap">{item.reply && <Link className="btn small" to={`/write?reply=${encodeURIComponent(item.reply)}${order ? `&near=${encodeURIComponent(order)}` : ""}`}>Reply</Link>}{status}</span></div>;
 }
 
 /** One record with everything the other systems hold about it. */
