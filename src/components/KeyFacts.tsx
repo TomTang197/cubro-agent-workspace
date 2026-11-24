@@ -50,20 +50,22 @@ export function KeyFacts({ sheet, of }: { sheet?: FactSheet; of: string }) {
   if (!sheet?.facts.length) return null;
   const differs = sheet.facts.filter((f) => f.check === "differs").length, checked = sheet.facts.filter((f) => f.check).length;
   const kinds = [...new Set(sheet.facts.map((f) => f.kind))];
+  // A value that matches the order gets a tick, with what it matched on hover; one that differs says what the order says.
   const value = (f: Fact, i: number) => (
-    <li key={i} className={f.check === "differs" ? "differs" : undefined}>
+    <li key={i} className={f.check === "differs" ? "differs" : undefined} title={f.kind === "item" ? f.about : undefined}>
       <mark className={`fact fact-${f.kind}${f.check === "differs" ? " differs" : ""}`}>{f.text}</mark>
-      {f.about && <span className="muted"> {f.about}</span>}
-      {f.record && <span className={`fact-note ${f.check ?? ""}`}>{f.check === "differs" ? " ⚠ " : f.check === "same" ? " ✓ " : " · "}{f.record}</span>}
+      {f.about && f.kind !== "item" && <span className="muted"> {f.about}</span>}
+      {f.check === "same" ? <span className="fact-note same" title={f.record} aria-label={`matches: ${f.record}`}> ✓</span>
+        : f.record && <span className={`fact-note ${f.check ?? ""}`}>{f.check === "differs" ? " ⚠ " : " · "}{f.record}</span>}
     </li>
   );
   return (
     <aside className="key-facts" aria-label={`Key facts in ${of}`}>
       <p className="key-facts-head"><b>Key facts in {of}</b>
-        {differs > 0 ? <span className="pill bad">{differs} {differs === 1 ? "differs" : "differ"} from {sheet.order ?? "Infor LN"}</span>
-          : checked > 0 && sheet.order ? <span className="pill ok">Matches {sheet.order}</span> : null}</p>
+        {differs > 0 ? <span className="pill bad asis">{differs} {differs === 1 ? "differs" : "differ"} from {sheet.order ?? "Infor LN"}</span>
+          : checked > 0 && sheet.order ? <span className="pill ok asis">Matches {sheet.order}</span> : null}</p>
       <dl>{kinds.map((k) => <div key={k}><dt>{LABEL[k]}</dt><dd><ul>{sheet.facts.filter((f) => f.kind === k).map(value)}</ul></dd></div>)}</dl>
-      <p className="small muted">Shown here only: the email itself is not changed. Every value is copied from its text{sheet.order ? ` and compared with ${sheet.order} in Infor LN` : ""}{sheet.readBy ? `; ${sheet.readBy} also read it` : sheet.more ? "; the model is reading it too…" : ""}.</p>
+      <p className="small muted">Shown here only: the email itself is not changed. Each value is copied from its text{sheet.order ? ` and compared with ${sheet.order} in Infor LN (✓ matches)` : ""}{sheet.readBy ? `; ${sheet.readBy} also read it` : sheet.more ? "; the model is reading it too…" : ""}.</p>
     </aside>
   );
 }
