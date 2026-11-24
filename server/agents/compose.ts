@@ -58,23 +58,27 @@ export function revisedDate(text: string, marked = false): string | undefined {
   return !marked && !fresh.length && all.length === 1 && last !== "old" ? all[0][0] : undefined;
 }
 
-/** Words before a bare number that make it some other document's number: an invoice, a quote, a consignment. */
-const OTHER_NUMBER = /\b(?:invoice|inv|credit note|quote|quotation|delivery note|packing (?:slip|list)|tracking|consignment|awb|account|ref(?:erence)?)\b[\s.:#-]*(?:no|number|num|nr)?[\s.:#-]*$/i;
+/** Words before a bare number that make it another document's number: an invoice, a quote, a consignment. */
+const OTHER_NUMBER = /\b(?:invoice|inv|credit note|quote|quotation|delivery note|packing (?:slip|list)|tracking|consignment|awb)\b[\s.:#-]*(?:no|number|num|nr)?[\s.:#-]*$/i;
+/** Words before a number that make it an order number however it is spaced: "PO 41711", "purchase order no. 41711", "PO reference 41711". */
+const ORDER_WORDS = String.raw`(?:p\.?\s?o\.?|purchase order|order)(?:\s*(?:no|number|num|nr|ref|reference))?[\s.:#-]*`;
 
 /**
- * The supplier's order an email is about. An order named in full ("PO41711") is taken before anything else in the email; only
- * where none is does a bare number ("41711") count, and not one given as an invoice, quote or tracking number.
+ * The supplier's order an email is about. An order the email calls an order ("PO41711", "PO 41711", "order no. 41711") is taken
+ * before anything else in it; only where none is does a bare number ("41711") count, and not an invoice, quote or tracking number.
  */
 export function orderIn(m: Pick<MailMessage, "subject" | "body">, orders: LnPurchaseOrder[]) {
   const text = `${m.subject} ${m.body}`, safe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const whole = (name: string) => new RegExp(`(?<![\\p{L}\\p{N}])${safe(name)}(?![\\p{L}\\p{N}])`, "giu");
+  const whole = (pattern: string) => new RegExp(`(?<![\\p{L}\\p{N}])(?:${pattern})(?![\\p{L}\\p{N}])`, "giu");
   const first = (at: (po: LnPurchaseOrder) => number) => orders.map((po) => ({ po, i: at(po) })).filter((x) => x.i >= 0).sort((a, b) => a.i - b.i)[0]?.po;
-  const bare = (po: LnPurchaseOrder) => {
-    const digits = po.order.replace(/^\D+/, "");
-    if (digits.length < 4 || digits === po.order) return -1;
-    return [...text.matchAll(whole(digits))].find((x) => !OTHER_NUMBER.test(text.slice(0, x.index)))?.index ?? -1;
+  // A number shorter than four digits is too easily something else to be read without its prefix.
+  const digits = (po: LnPurchaseOrder) => { const d = /\d+$/.exec(po.order)?.[0] ?? ""; return d.length >= 4 ? d : undefined; };
+  const named = (po: LnPurchaseOrder) => {
+    const d = digits(po), prefix = d && safe(po.order.slice(0, -d.length));
+    return text.search(whole([safe(po.order), ...(d ? [`${ORDER_WORDS}${d}`, ...(prefix ? [`${prefix}[\\s.:#-]*${d}`] : [])] : [])].join("|")));
   };
-  return first((po) => text.search(whole(po.order))) ?? first(bare);
+  const bare = (po: LnPurchaseOrder) => { const d = digits(po); return (d ? [...text.matchAll(whole(d))].find((x) => !OTHER_NUMBER.test(text.slice(0, x.index)))?.index : undefined) ?? -1; };
+  return first(named) ?? first(bare);
 }
 
 /** The things this email could say, from the supplier's email being answered, the order and the supplier's record. */

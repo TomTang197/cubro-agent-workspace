@@ -106,6 +106,11 @@ describe("what a supplier email can say", () => {
     expect(orderIn({ subject: "Statement", body: `Invoice ${digits} is attached. It covers ${b.order}.` }, [a, b])).toBe(b);
     expect(orderIn({ subject: "Statement", body: `Invoice no. ${digits} and tracking #${digits} attached.` }, [a, b])).toBeUndefined();
     expect(orderIn({ subject: "Statement", body: `Invoice ${digits}7 attached for order ${digits}.` }, [a, b])).toBe(a);
+    // An order number is an order number however it is spaced or introduced, and comes before a later order written closed up.
+    const prefix = a.order.slice(0, -digits.length);
+    expect(orderIn({ subject: "Delay", body: `${prefix} ${digits} is delayed. ${b.order} is on time.` }, [a, b])).toBe(a);
+    expect(orderIn({ subject: "Delay", body: `Invoice ${b.order.replace(/^\D+/, "")} attached. ${prefix}-${digits} is delayed.` }, [a, b])).toBe(a);
+    for (const said of [`PO reference ${digits}`, `P.O. #${digits}`, `Purchase order no. ${digits}`, `your order ref: ${digits}`]) expect(orderIn({ subject: "Delay", body: `${said} is delayed.` }, [a, b])).toBe(a);
   });
 
   it("offers what the supplier's record suggests when no order is picked", () => {
