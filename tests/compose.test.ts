@@ -78,6 +78,8 @@ describe("what a supplier email can say", () => {
     expect(revisedDate("We changed carriers on 1 December; the new delivery estimate is 9 December.")).toBe("9 December");
     expect(revisedDate("We changed carriers on 1 December and expect delivery on 9 December.")).toBeUndefined();
     expect(revisedDate("The new carrier collected it on 1 December, so it is now due on 9 December.")).toBe("9 December");
+    expect(revisedDate("We updated the delivery address on 1 December. Arrival is expected 9 December.")).toBeUndefined();
+    expect(revisedDate("The delivery date was revised to 9 December instead of 23 November.")).toBe("9 December");
     // A body with several unmarked dates is unclear, and the subject's date (here the original due date) does not settle it.
     const unclear = { ...delay, subject: `${po.order} due 23 November 2026 — delay`, body: "Vessel sails 3 December 2026, arrives 20 December 2026." };
     expect(emailOptions(input(store, po, unclear)).find((o) => o.id === "accept-date")).toMatchObject({ label: "Accept the delay", text: expect.not.stringMatching(/November|December/) });

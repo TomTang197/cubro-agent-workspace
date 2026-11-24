@@ -35,12 +35,13 @@ const FROM = /\b(?:from|instead of|rather than|not|replac(?:es|ing))\s+(?:the\s+
 const WAS = /\b(?:original|originally|previous|previously|earlier|old|was|were)(?: \w+){0,3}\s+(?:the\s+)?$/i;
 const MOVING = /\b(?:delayed|moved|pushed|put back|postponed|slipped|changed|brought forward|rescheduled|revised|now)\b/i;
 /**
- * What makes a date the new one, in the words since the date before it (or the start of the sentence): a phrase about delivery
- * timing ("new delivery date", "revised ETA", "now expected on"), or a moving word that runs straight into the date
- * ("pushed back to", "delayed until"). A moving word about something else ("we changed carriers on 1 December") does not count.
+ * What makes a date the new one, in the words since the date before it (or the start of the sentence): a phrase that names
+ * a date or estimate ("new delivery date", "revised ETA", "now expected on"), or a moving word that runs straight into the date
+ * ("pushed back to", "revised to", "delayed until"). A change to something else ("we changed carriers on 1 December",
+ * "we updated the delivery address on 1 December") does not count.
  */
-const NEW_TIMING = /\b(?:(?:new|revised|updated)\s+(?:\w+\s+){0,2}?(?:date|delivery|eta|etd|arrival|dispatch|ship(?:ping|ment)?|schedule)\b|rescheduled\b|now\s+(?:\w+\s+){0,5}(?:the\s+)?$)/i;
-const MOVED_TO = /\b(?:delayed|moved|pushed|put back|postponed|slipped|changed|brought forward)\b[^,;:]*\b(?:to|until|till)\s+(?:the\s+)?$/i;
+const NEW_TIMING = /\b(?:(?:new|revised|updated)\s+(?:\w+\s+){0,2}?(?:date|eta|etd|estimate|schedule)\b|rescheduled\b|now\s+(?:\w+\s+){0,5}(?:the\s+)?$)/i;
+const MOVED_TO = /\b(?:delayed|moved|pushed|put back|postponed|slipped|changed|brought forward|revised|updated|amended)\b[^,;:]*\b(?:to|until|till)\s+(?:the\s+)?$/i;
 const TO = /^\s*(?:to|until|till)\s+(?:the\s+)?$/i;
 
 /**
