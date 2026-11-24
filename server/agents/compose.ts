@@ -1,6 +1,6 @@
 // A supplier email a person writes with the assistant: they pick what to say from options drawn from the order and the supplier's own email,
 // add a line of their own, and the result goes to Drafts to check like any other draft.
-import type { LnItem, LnPurchaseOrder, LnSupplier, MailMessage } from "../connectors/types.js";
+import { MAIL_LIST_LIMIT, type LnItem, type LnPurchaseOrder, type LnSupplier, type MailMessage } from "../connectors/types.js";
 import { STAFF } from "../data/seed.js";
 import type { LlmProvider } from "../llm/index.js";
 import type { SupplierEmailPayload } from "../store.js";
@@ -196,13 +196,17 @@ export function writeList(suppliers: LnSupplier[], purchaseOrders: LnPurchaseOrd
   // Our last word in each conversation: an email older than that has been answered.
   const answered = new Map<string, string>();
   for (const m of messages) if (m.folder === "Sent Items" && m.receivedDateTime > (answered.get(m.conversationId) ?? "")) answered.set(m.conversationId, m.receivedDateTime);
+  // The mailbox lists only the latest of what we sent. When that list is full, the answer to an email older than all of it
+  // may be among what is missing, so such an email is not said to be unanswered.
+  const sent = messages.filter((m) => m.folder === "Sent Items").map((m) => m.receivedDateTime).sort();
+  const since = sent.length >= MAIL_LIST_LIMIT ? sent[0] : "";
   const seen = new Set<string>();
   const emails = [...messages].sort((a, b) => b.receivedDateTime.localeCompare(a.receivedDateTime)).flatMap((m) => {
     const s = m.folder === "Inbox" ? byAddress.get(m.from.address.toLowerCase()) : undefined;
     // Only the supplier's latest email in a conversation waits for an answer.
     if (!s || seen.has(m.conversationId)) return [];
     seen.add(m.conversationId);
-    if (m.receivedDateTime <= (answered.get(m.conversationId) ?? "")) return [];
+    if (m.receivedDateTime <= (answered.get(m.conversationId) ?? "") || m.receivedDateTime < since) return [];
     const po = orderIn(m, purchaseOrders.filter((o) => o.supplier === s.supplier)), topic = emailTopic(m);
     return [{ id: m.id, supplier: s.name, from: m.from.name, subject: m.subject, at: m.receivedDateTime, topic, order: po?.order, toAnswer: (topic !== "confirmed" || m.body.includes("?")) && (!po || OPEN.includes(po.status)), draft: waiting.some((p) => p.inReplyTo?.id === m.id) || drafted(po?.order) }];
   });

@@ -2,7 +2,7 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { composeBody, composeParts, emailOptions, emailTopic, orderIn, revisedDate, tidyOwnLine, writeList, type ComposeInput } from "../server/agents/compose";
 import { createApp } from "../server/app";
-import type { LnPurchaseOrder, MailMessage } from "../server/connectors/types";
+import { MAIL_LIST_LIMIT, type LnPurchaseOrder, type MailMessage } from "../server/connectors/types";
 import { templateProvider, type LlmProvider } from "../server/llm";
 import { Store, type ApprovalItem, type SupplierEmailPayload } from "../server/store";
 
@@ -336,6 +336,12 @@ describe("writing a supplier email from the options", () => {
     const mail = (id: string, body: string): MailMessage => ({ id, conversationId: `conv-${id}`, subject: "Artwork for the new cartons", from, to, body, bodyPreview: body, receivedDateTime: "2026-11-22T20:00:00.000Z", isDraft: false, folder: "Inbox" });
     const listed = writeList(ln(store).suppliers, ln(store).purchaseOrders, [mail("asks", "Thank you for your order. Which delivery address should we use?"), mail("artwork", "We will start the run once we confirm the artwork. Please send the final file."), mail("plain", "Thank you for your order.")], [], today).emails;
     expect(listed.map((e) => [e.id, e.topic, e.toAnswer])).toEqual([["asks", "confirmed", true], ["artwork", "other", true], ["plain", "confirmed", false]]);
+    // A mailbox lists only the latest it sent. With that list full, an email older than all of it may have been answered, so it is not offered.
+    const ours = (n: number): MailMessage[] => Array.from({ length: n }, (_, i) => ({ ...mail(`sent-${i}`, "Thank you."), from: to[0], to: [from], folder: "Sent Items" as const, receivedDateTime: `2026-11-23T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}.000Z` }));
+    const older = mail("older", "Do you have a new catalogue?");
+    expect(writeList(ln(store).suppliers, [], [older, ...ours(MAIL_LIST_LIMIT - 1)], [], today).emails.map((e) => e.id)).toEqual(["older"]);
+    expect(writeList(ln(store).suppliers, [], [older, ...ours(MAIL_LIST_LIMIT)], [], today).emails).toEqual([]);
+    expect(writeList(ln(store).suppliers, [], [{ ...older, receivedDateTime: "2026-11-23T00:03:00.000Z" }, ...ours(MAIL_LIST_LIMIT)], [], today).emails.map((e) => e.id)).toEqual(["older"]);
     expect(first.emails.findIndex((e) => !e.order)).toBeGreaterThan(first.emails.map((e) => !!e.order).lastIndexOf(true));
 
     // Orders still to arrive, the latest first, and no order that has arrived.
