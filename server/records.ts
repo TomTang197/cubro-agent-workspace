@@ -140,7 +140,9 @@ export async function recordDetail(c: Connectors, approvals: ApprovalItem[], kin
     const others = d.opportunities.filter((o) => o.AccountId !== id);
     const ownNames = opps.map((o) => o.Name).filter((n) => !others.some((o) => o.Name === n));
     const taskText = (t: ClickUpTask) => `${t.name} ${t.description}`;
-    const theirs = new Set(d.tasks.filter((t) => !opps.some((o) => mentions(taskText(t), o.Id)) && others.some((o) => mentions(taskText(t), o.Id))));
+    const dealOwner = new Map(d.opportunities.map((o) => [o.Id, o.AccountId]));
+    const quotedOwners = (t: ClickUpTask) => (taskText(t).match(/\b[A-Za-z0-9]{18}\b/g) ?? []).flatMap((w) => dealOwner.get(w) ?? []);
+    const theirs = new Set(d.tasks.filter((t) => { const owners = quotedOwners(t); return owners.length > 0 && !owners.includes(id); }));
     link("Tasks", "ClickUp", tasksAbout([a.Name, ...ownNames, ...opps.map((o) => o.Id)], theirs));
     link("Products they asked about", "Infor LN", byRow("product", [...new Set([...opps.flatMap((o) => o.ProductSkus), ...cases.map((x) => x.ProductSku)])]).slice(0, 8));
   } else {
