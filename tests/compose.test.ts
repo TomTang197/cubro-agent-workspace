@@ -1,6 +1,6 @@
 import request from "supertest";
 import { describe, expect, it } from "vitest";
-import { composeBody, composeParts, emailOptions, emailTopic, tidyOwnLine, type ComposeInput } from "../server/agents/compose";
+import { composeBody, composeParts, emailOptions, emailTopic, revisedDate, tidyOwnLine, type ComposeInput } from "../server/agents/compose";
 import { createApp } from "../server/app";
 import type { LnPurchaseOrder, MailMessage } from "../server/connectors/types";
 import { templateProvider, type LlmProvider } from "../server/llm";
@@ -53,6 +53,13 @@ describe("what a supplier email can say", () => {
     const newDate = /new delivery date to Tauriko is ([^.]+)\./.exec(delay.body)![1];
     expect(options.find((o) => o.id === "accept-date")!.text).toContain(`the new delivery date of ${newDate}`);
     expect(options.map((o) => o.id)).toEqual(expect.arrayContaining(["earlier", "firm-date"]));
+    // A later date in the notice that is not the delivery date is not mistaken for it.
+    const tracked = { ...delay, body: `The new delivery date to Tauriko is ${newDate}. We will send tracking details by 12 February 2027.` };
+    expect(emailOptions(input(store, po, tracked)).find((o) => o.id === "accept-date")!.text).toContain(`the new delivery date of ${newDate}`);
+    expect(revisedDate("It was due 23 November 2026 and is now expected on 9 December 2026.")).toBe("9 December 2026");
+    expect(revisedDate("Sorry for the delay. Shipping 3 December 2026.")).toBe("3 December 2026");
+    // Two dates and nothing to say which is the new one: none is quoted.
+    expect(revisedDate("Vessel sails 3 December 2026, arrives 20 December 2026.")).toBeUndefined();
     // They have just given the new date, so it is not asked for.
     expect(options.map((o) => o.id)).not.toContain("ship-date");
     // What answers their email comes before what the order suggests.

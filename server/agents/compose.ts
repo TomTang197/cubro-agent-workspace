@@ -28,6 +28,16 @@ export function emailTopic(m: Pick<MailMessage, "subject" | "body">): "delay" | 
   return "other";
 }
 
+/**
+ * The new delivery date a delay notice gives: the date in the sentence that calls it new, revised or delayed to.
+ * A notice with one date and no such words means that date; with several and no such words, none is quoted rather than the wrong one.
+ */
+export function revisedDate(text: string): string | undefined {
+  const date = DATE.source, named = new RegExp(`\\b(?:new|revised|rescheduled|delayed (?:un)?til|delayed to|now (?:be |due |expected |arrive |ship )+)[^.!?\\n]*?(${date})`, "i").exec(text)?.[1];
+  const all = text.match(DATE) ?? [];
+  return named ?? (all.length === 1 ? all[0] : undefined);
+}
+
 /** The order a supplier's email is about: the first of this supplier's order numbers it names. */
 export const orderIn = (m: Pick<MailMessage, "subject" | "body">, orders: LnPurchaseOrder[]) => (`${m.subject} ${m.body}`.match(/PO\d+/g) ?? []).map((n) => orders.find((po) => po.order === n)).find(Boolean);
 
@@ -41,13 +51,13 @@ export function emailOptions({ supplier: s, order: po, message: m, orders, items
   const openList = open.slice(0, 6).map((o) => `  • ${o.order}${dueOf(o) ? ` — due ${nzDate(dueOf(o))}` : ""}`).join("\n");
   const ref = po?.order ?? "the order";
   const topic = m ? emailTopic(m) : undefined;
-  // The last date in a delay notice is the new one; the first in a price notice is when it takes effect.
+  // The first date in a price notice is when it takes effect.
   const dates = m ? m.body.match(DATE) ?? m.subject.match(DATE) ?? [] : [];
 
   if (m) {
     const theirs = `your email of ${nzDate(nzDay(new Date(m.receivedDateTime)).toISOString())}`;
     if (topic === "delay") {
-      const date = dates.at(-1);
+      const date = revisedDate(m.body) ?? revisedDate(m.subject);
       add("email", "accept-date", date ? `Accept the new date, ${date.replace(/ \d{4}$/, "")}` : "Accept the delay", "revised delivery date", `Thank you for letting us know about the delay to ${ref}. We have noted ${date ? `the new delivery date of ${date}` : "it"} and will plan around it.`);
       add("email", "earlier", "Ask them to bring it forward", "revised delivery date", `${date ? `Delivery on ${date}` : "The new date"} is later than we planned for. Is there any way to bring it forward, or to send part of ${ref} earlier?`);
       add("email", "firm-date", "Ask if the new date is firm", "revised delivery date", `Could you please confirm that ${date ?? "the new date"} is now firm, and tell us straight away if anything changes?`);
