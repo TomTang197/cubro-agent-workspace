@@ -200,7 +200,7 @@ html, body, #root { height:100%; }
 .write-work .list-row > .small { display:block; overflow-wrap:anywhere; line-height:1.7; } .write-work .list-row .pill { margin-right:6px; } .write-more { display:block; margin:8px 14px 12px; }
 @container (max-width: 640px) { .write { grid-template-columns:minmax(0,1fr); } .write > .card:last-child { position:static; } }
 /* Key facts: the numbers in an email picked out for the reader. Shown in the workspace only; the email's own text is not changed. */
-mark.fact { color:inherit; background:#7919FF12; box-shadow:inset 0 -2px #7919FF4d; border-radius:2px; padding:0 2px; font-weight:500; }
+mark.fact { color:inherit; background:#7919FF12; box-shadow:inset 0 -2px #7919FF4d; border-radius:2px; padding:0 2px; font:inherit; }
 mark.fact-item { background:#1D6FD612; box-shadow:inset 0 -2px #1D6FD64d; } mark.fact-quantity { background:#B25E0014; box-shadow:inset 0 -2px #B25E0059; }
 mark.fact-date { background:#18794E14; box-shadow:inset 0 -2px #18794E59; } mark.fact-price { background:#0E7C8614; box-shadow:inset 0 -2px #0E7C8659; } mark.fact-tracking { background:#33333312; box-shadow:inset 0 -2px #33333340; }
 mark.fact.differs { background:#C0392B1f; box-shadow:inset 0 -2px var(--bad); color:var(--bad); }
