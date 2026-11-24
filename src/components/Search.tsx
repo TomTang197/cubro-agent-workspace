@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api, type SearchHit } from "../api";
 import { kindLabel, useRecordLink } from "./Record";
+import { mayLeave } from "../leaving";
 
 /** One box for all four systems: type a supplier, an order number or a customer and open it. */
 export default function Search() {
@@ -37,8 +38,10 @@ export default function Search() {
   }, []);
 
   const go = (h: SearchHit) => {
+    const to = h.kind === "draft" ? `/approvals/${h.id}?status=all&view=list&agent=all` : recordLink(h.kind, h.id);
+    if (!mayLeave(to)) return;
     setOpen(false); setQ(""); input.current?.blur();
-    nav(h.kind === "draft" ? `/approvals/${h.id}?status=all&view=list&agent=all` : recordLink(h.kind, h.id));
+    nav(to);
   };
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") { setOpen(false); input.current?.blur(); }

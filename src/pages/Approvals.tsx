@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { fromNzInput, nzDay, shortDay } from "../../server/agents/nzTime";
 import { AGENT_NAMES, DRAFT_NOUN, RESTART, STATUS_LABEL, TEAMS, agentFor, api, getUser, scrollToTop, teamOf, todayNz, weekday, when, type AgentId, type ApprovalItem } from "../api";
 import { RecordLink } from "../components/Record";
+import { askBeforeLeaving, mayLeave } from "../leaving";
 
 const AGENT_TEAM: Record<AgentId, string> = { "social-media": "Marketing", "supplier-outreach": "Purchasing" };
 import { useApi } from "../useApi";
@@ -66,6 +67,18 @@ export default function Approvals() {
   // A draft decided under one team can be reopened after the reviewer has switched to the other, so its link names its own team.
   const queueOf = (a: ApprovalItem) => (agent && agent !== a.agent ? a.agent : agent || "all");
   const guard = (e: { preventDefault: () => void }) => { if (keepEdits()) e.preventDefault(); };
+  // Links outside this page (the record panel's linked drafts, notifications, the menu) and the search would otherwise drop the edits without asking.
+  useEffect(() => {
+    askBeforeLeaving(keepEdits);
+    const ask = (e: MouseEvent) => {
+      const link = (e.target as Element).closest?.("a[href]");
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
+      if (!link || link.getAttribute("target") === "_blank" || link.closest("main")) return; // links on this page ask for themselves
+      if (!mayLeave(link.getAttribute("href")!)) { e.preventDefault(); e.stopPropagation(); }
+    };
+    document.addEventListener("click", ask, true);
+    return () => { askBeforeLeaving(); document.removeEventListener("click", ask, true); };
+  }, []);
 
   async function commit(h: Held, keepalive = false) {
     try { setDone(await api<ApprovalItem>(`/approvals/${h.item.id}/${h.kind}`, { method: "POST", body: { note: h.note, user: h.by, ...(h.changes && { payload: h.changes.patch }) }, keepalive })); }
