@@ -71,12 +71,12 @@ export function revisedDate(text: string, marked = false): string | undefined {
 }
 
 /** Words before a bare number that make it something other than our order number: an invoice, a quote, the supplier's own order or account. */
-const OTHER_NUMBER = /\b(?:invoice|inv|credit note|quote|quotation|delivery note|packing (?:slip|list)|tracking|consignment|awb|account|acct|customer|sales order|works? order|job|our (?:order|ref|reference)|ref|reference)\b[\s.:#-]*(?:no|number|num|nr|id)?[\s.:#-]*$/i;
+const OTHER_NUMBER = /\b(?:invoice|inv|credit note|quote|quotation|delivery note|packing (?:slip|list)|tracking|consignment|awb|account|acct|customer|sales[\s-]order|works?[\s-]order|job|our (?:order|ref|reference)|ref|reference)\b[\s.:#-]*(?:no|number|num|nr|id)?[\s.:#-]*$/i;
 /**
  * Words before a number that make it our order number however it is spaced: "PO 41711", "purchase order no. 41711", "order ref: 41711",
  * "your ref 41711". An order the supplier calls theirs ("sales order", "our order") is not ours.
  */
-const ORDER_WORDS = String.raw`(?:p\.?\s?o\.?|purchase order|(?<!\b(?:sales|works?|our|job)\s+)order|your ref(?:erence)?)(?:\s*(?:no|number|num|nr|ref|reference))?[\s.:#-]*`;
+const ORDER_WORDS = String.raw`(?:p\.?\s?o\.?|purchase order|(?<!\b(?:sales|works?|our|job)[\s-]+)order|your ref(?:erence)?)(?:\s*(?:no|number|num|nr|ref|reference))?[\s.:#-]*`;
 
 /**
  * The supplier's order an email is about. An order the email calls an order ("PO41711", "PO 41711", "order no. 41711") is taken

@@ -124,7 +124,8 @@ describe("what a supplier email can say", () => {
     expect(orderIn({ subject: "Delay", body: `Invoice ${b.order.replace(/^\D+/, "")} attached. ${prefix}-${digits} is delayed.` }, [a, b])).toBe(a);
     // The supplier's own sales order, account or reference number is not our order, even when its digits match one.
     expect(orderIn({ subject: "Delay", body: `Sales order ${digits} for ${b.order} is delayed.` }, [a, b])).toBe(b);
-    for (const said of [`Sales order ${digits}`, `Account no. ${digits}`, `Our ref: ${digits}`, `Customer #${digits}`]) expect(orderIn({ subject: "Statement", body: `${said} is attached.` }, [a, b])).toBeUndefined();
+    expect(orderIn({ subject: "Delay", body: `Sales-order no. ${digits} for ${b.order} is delayed.` }, [a, b])).toBe(b);
+    for (const said of [`Sales order ${digits}`, `Sales-order no. ${digits}`, `Account no. ${digits}`, `Our ref: ${digits}`, `Customer #${digits}`]) expect(orderIn({ subject: "Statement", body: `${said} is attached.` }, [a, b])).toBeUndefined();
     // "Order no." and "Order ref:" name our order, and come before an earlier bare number.
     const other = b.order.replace(/^\D+/, "");
     for (const said of [`Order no. ${digits}`, `Order ref: ${digits}`, `Re order #${digits}`]) expect(orderIn({ subject: "Delay", body: `Carton ${other}. ${said} is delayed.` }, [a, b])).toBe(a);
