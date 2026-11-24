@@ -67,7 +67,8 @@ describe("what a supplier email can say", () => {
     expect(revisedDate("The revised schedule replaces the original delivery date of 23 November 2026.")).toBeUndefined();
     expect(revisedDate("The order was due 23 November 2026 and will be late.")).toBeUndefined();
     expect(revisedDate("New date 9 December 2026. To confirm, the revised arrival is 9 December.")).toBe("9 December 2026");
-    expect(revisedDate("The new ship date is 3 December 2026 and the new arrival date is 20 December 2026.")).toBeUndefined();
+    expect(revisedDate("The new ship date is 3 December 2026 and the new arrival date is 20 December 2026.")).toBe("20 December 2026");
+    expect(revisedDate("The new delivery date is 3 December for the first lot and the new delivery date is 20 December for the rest.")).toBeUndefined();
     // A date is read by the words since the date before it: a tracking date after the new delivery date does not compete with it.
     expect(revisedDate("The new delivery date is 9 December 2026 and we will send tracking details by 12 December 2026.")).toBe("9 December 2026");
     // "Was delayed until" is where the delivery moved to, not where it was.
@@ -84,6 +85,10 @@ describe("what a supplier email can say", () => {
     expect(revisedDate("The updated payment date is 1 December. Delivery is expected 9 December.")).toBeUndefined();
     expect(revisedDate("Our revised freight estimate is valid to 1 December. Delivery is expected 9 December.")).toBeUndefined();
     expect(revisedDate("Revised delivery: 9 December", true)).toBe("9 December");
+    // The day it ships is not the day it arrives.
+    expect(revisedDate("Revised shipping: 1 December. Expected arrival 9 December.")).toBeUndefined();
+    expect(revisedDate("We updated the delivery date to 9 December and will invoice on 12 December.")).toBe("9 December");
+    expect(revisedDate("The new confirmed delivery date is 9 December; documents follow by 12 December.")).toBe("9 December");
     expect(revisedDate("The updated delivery schedule gives 9 December.", true)).toBe("9 December");
     // A body with several unmarked dates is unclear, and the subject's date (here the original due date) does not settle it.
     const unclear = { ...delay, subject: `${po.order} due 23 November 2026 — delay`, body: "Vessel sails 3 December 2026, arrives 20 December 2026." };
