@@ -29,10 +29,18 @@ export function emailTopic(m: Pick<MailMessage, "subject" | "body">): "delay" | 
   return "other";
 }
 
-/** Words just before a date that make it the date the delivery is moving away from: "from 12 December", "originally due 12 December". */
-const OLD_DATE = /\b(?:from|instead of|rather than|not|replac(?:es|ing)|(?:original|originally|previous|previously|earlier|old|was|were)(?: \w+){0,3})\s+(?:the\s+)?$/i;
-/** Words that say a delivery is moving. Between the date before (or the start of the sentence) and a date, they make that date the new one. */
-const MOVED = /\b(?:new|now|revised|rescheduled|delayed|moved|pushed|put back|postponed|slipped|changed|brought forward)\b/i;
+/** Directly before a date, these make it the date the delivery is moving away from, whatever comes earlier: "delayed from 12 December". */
+const FROM = /\b(?:from|instead of|rather than|not|replac(?:es|ing))\s+(?:the\s+)?$/i;
+/** So do these a few words before it ("was due 12 December", "originally planned for 12 December"), unless those words say it moved ("was put back to"). */
+const WAS = /\b(?:original|originally|previous|previously|earlier|old|was|were)(?: \w+){0,3}\s+(?:the\s+)?$/i;
+const MOVING = /\b(?:delayed|moved|pushed|put back|postponed|slipped|changed|brought forward|rescheduled|revised|now)\b/i;
+/**
+ * What makes a date the new one, in the words since the date before it (or the start of the sentence): a phrase about delivery
+ * timing ("new delivery date", "revised ETA", "now expected on"), or a moving word that runs straight into the date
+ * ("pushed back to", "delayed until"). A moving word about something else ("we changed carriers on 1 December") does not count.
+ */
+const NEW_TIMING = /\b(?:(?:new|revised|updated)\s+(?:\w+\s+){0,2}?(?:date|delivery|eta|etd|arrival|dispatch|ship(?:ping|ment)?|schedule)\b|rescheduled\b|now\s+(?:\w+\s+){0,5}(?:the\s+)?$)/i;
+const MOVED_TO = /\b(?:delayed|moved|pushed|put back|postponed|slipped|changed|brought forward)\b[^,;:]*\b(?:to|until|till)\s+(?:the\s+)?$/i;
 const TO = /^\s*(?:to|until|till)\s+(?:the\s+)?$/i;
 
 /**
@@ -47,8 +55,8 @@ export function revisedDate(text: string, marked = false): string | undefined {
   let after = 0, last = "";
   for (const d of all) {
     const sentence = text.slice(0, d.index).search(/[^.!?\n]*$/), lead = text.slice(Math.max(sentence, after), d.index);
-    const from = OLD_DATE.exec(lead)?.[0];
-    const kind = from && !MOVED.test(from) ? "old" : MOVED.test(lead) || (last === "old" && sentence <= after && TO.test(lead)) ? "new" : "";
+    const was = WAS.exec(lead)?.[0];
+    const kind = FROM.test(lead) || (was && !MOVING.test(was)) ? "old" : NEW_TIMING.test(lead) || MOVED_TO.test(lead) || (last === "old" && sentence <= after && TO.test(lead)) ? "new" : "";
     if (kind === "new") fresh.push(d[0]);
     after = d.index + d[0].length;
     last = kind;
