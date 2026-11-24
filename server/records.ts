@@ -35,14 +35,16 @@ async function load(c: Connectors): Promise<Data> {
 const nzDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Pacific/Auckland" });
 const shortDate = (iso: string) => new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso).toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric", timeZone: iso.length === 10 ? "UTC" : "Pacific/Auckland" });
 const amount = (n: number, currency = "NZD") => n.toLocaleString("en-NZ", { style: "currency", currency, maximumFractionDigits: 0 });
-const dueOf = (po: LnPurchaseOrder) => po.confirmedReceiptDate ?? po.plannedReceiptDate;
+// A live order can arrive without a receipt date yet; it has no due date, so it is never overdue.
+const dueOf = (po: LnPurchaseOrder) => po.confirmedReceiptDate || po.plannedReceiptDate || "";
+const dueText = (po: LnPurchaseOrder) => (dueOf(po) ? `due ${shortDate(dueOf(po))}` : "no due date yet");
 const isOpen = (po: LnPurchaseOrder) => po.status !== "Received" && po.status !== "Closed";
 const valueOf = (po: LnPurchaseOrder) => po.lines.reduce((n, l) => n + l.quantity * l.price, 0);
 const has = (text: string, needle: string) => !!needle && text.toLowerCase().includes(needle.toLowerCase());
 
 function rows(d: Data, today: string): RecordRow[] {
   const supplierName = new Map(d.suppliers.map((s) => [s.supplier, s.name]));
-  const late = (po: LnPurchaseOrder) => isOpen(po) && dueOf(po) < today;
+  const late = (po: LnPurchaseOrder) => isOpen(po) && !!dueOf(po) && dueOf(po) < today;
   return [
     ...d.suppliers.map((s): RecordRow => {
       const open = d.orders.filter((po) => po.supplier === s.supplier && isOpen(po)), overdue = open.filter(late).length;
@@ -53,7 +55,7 @@ function rows(d: Data, today: string): RecordRow[] {
       };
     }),
     ...d.orders.map((po): RecordRow => ({
-      kind: "order", id: po.order, title: po.order, subtitle: `${supplierName.get(po.supplier) ?? po.supplier} · due ${shortDate(dueOf(po))}`, system: "Infor LN",
+      kind: "order", id: po.order, title: po.order, subtitle: `${supplierName.get(po.supplier) ?? po.supplier} · ${dueText(po)}`, system: "Infor LN",
       status: late(po) ? "Overdue" : po.status, tone: late(po) ? "warn" : isOpen(po) ? undefined : "ok",
       sort: { "Due date": dueOf(po), "Order date": po.orderDate, Value: valueOf(po), "Order number": po.order },
     })),
@@ -107,7 +109,7 @@ export async function recordDetail(c: Connectors, approvals: ApprovalItem[], kin
     const po = d.orders.find((x) => x.order === id)!;
     const name = new Map(d.items.map((i) => [i.item, i.description]));
     fields = [
-      { label: "Ordered", value: shortDate(po.orderDate) }, { label: "Planned to arrive", value: shortDate(po.plannedReceiptDate) },
+      { label: "Ordered", value: shortDate(po.orderDate) }, { label: "Planned to arrive", value: po.plannedReceiptDate ? shortDate(po.plannedReceiptDate) : "No date yet" },
       { label: "Supplier confirmed", value: po.confirmedReceiptDate ? shortDate(po.confirmedReceiptDate) : "Not confirmed yet" },
       { label: "Buyer", value: po.buyer }, { label: "Value", value: amount(valueOf(po), po.currency) },
       ...po.lines.map((l) => ({ label: `Line ${l.line}`, value: `${l.quantity} × ${name.get(l.item) ?? l.item} (${l.received} received)` })),
