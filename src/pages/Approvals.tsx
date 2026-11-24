@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { fromNzInput, nzDay, shortDay } from "../../server/agents/nzTime";
 import { AGENT_NAMES, DRAFT_NOUN, RESTART, STATUS_LABEL, TEAMS, agentFor, api, getUser, scrollToTop, teamOf, todayNz, weekday, when, day, type AgentId, type ApprovalItem, type EmailOption } from "../api";
 import { EmailOptions } from "../components/EmailOptions";
+import { KeyFacts, Marked, useFacts, type FactSheet } from "../components/KeyFacts";
 import { RecordLink } from "../components/Record";
 import { askBeforeLeaving, mayLeave } from "../leaving";
 
@@ -186,6 +187,9 @@ function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDe
   const [note, setNote] = useState(restore?.note ?? (item.status === "pending" ? item.reviewerNote ?? "" : ""));
   // A draft is read first; its fields open only when someone chooses to change it.
   const [changing, setChanging] = useState(!!restore?.edits);
+  // The numbers in the draft as it reads now, and in the email it answers, picked out for the reader. What is sent stays plain text.
+  const facts = useFacts<{ draft: FactSheet; inReplyTo?: FactSheet }>(p.type === "supplier_email" ? `${item.id}\n${subject}\n${text}` : null,
+    (quick) => api(`/approvals/${item.id}/facts`, { method: "POST", body: { subject, body: text, quick } }), (f) => !!f.inReplyTo?.more);
   const pending = item.status === "pending";
   const [social, setSocial] = useState(p.type === "social_post" ? restore?.edits?.social ?? socialEdits(p) : undefined);
   const patch = p.type === "social_post" ? socialPatch(p, social!) : { body: text, subject };
@@ -234,11 +238,12 @@ function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDe
           {p.purchaseOrder ? <div><span>Purchase order</span><b><RecordLink kind="order" id={p.purchaseOrder}>{p.purchaseOrder}</RecordLink></b></div> : <div><span>Items</span><b>{p.items.map((code, i) => <span key={code}>{i > 0 && ", "}<RecordLink kind="product" id={code}>{code}</RecordLink></span>)}</b></div>}
         </div>
       )}
-      {p.type === "supplier_email" && p.inReplyTo && <details className="quoted"><summary>In reply to {p.inReplyTo.from}'s email of {day(p.inReplyTo.receivedDateTime)}: {p.inReplyTo.subject}</summary><div className="letter-body">{p.inReplyTo.body}</div></details>}
+      {p.type === "supplier_email" && p.inReplyTo && <details className="quoted"><summary>In reply to {p.inReplyTo.from}'s email of {day(p.inReplyTo.receivedDateTime)}: {p.inReplyTo.subject}</summary><KeyFacts sheet={facts?.inReplyTo} of="their email" /><div className="letter-body"><Marked text={p.inReplyTo.body} marks={facts?.inReplyTo?.body} /></div></details>}
       {pending && (!changing || started) ? (
         <div className="letter">
-          {p.type === "supplier_email" && <p className="letter-subject"><span className="small muted">Subject</span>{subject}</p>}
-          <div className="letter-body">{p.type === "social_post" ? social!.text : text}</div>
+          {p.type === "supplier_email" && <p className="letter-subject"><span className="small muted">Subject</span><Marked text={subject} marks={facts?.draft.subject} /></p>}
+          <KeyFacts sheet={facts?.draft} of="this draft" />
+          <div className="letter-body">{p.type === "social_post" ? social!.text : <Marked text={text} marks={facts?.draft.body} />}</div>
           {p.type === "social_post" && <>
             <div className="chips">{social!.hashtags.split(/\s+/).filter(Boolean).map((h) => <span className="chip" key={h}>{h}</span>)}</div>
             <p className="small muted">To publish on {p.channel}: {social!.scheduledFor ? when(fromNzInput(social!.scheduledFor)) : "no date picked"}</p>

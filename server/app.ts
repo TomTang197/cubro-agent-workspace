@@ -109,6 +109,8 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
   const about = (from: Record<string, unknown>) => ({ supplier: text(from.supplier), order: text(from.order), reply: text(from.reply), near: text(from.near) });
   api.get("/supplier-emails/starts", wrap(() => agents.writeList()));
   api.get("/supplier-emails/options", wrap((req) => agents.composeOptions(about(req.query), user(req))));
+  api.get("/supplier-emails/facts", wrap((req) => agents.emailFacts(about(req.query), req.query.quick === "1")));
+  api.post("/approvals/:id/facts", wrap((req) => agents.draftFacts(req.params.id, req.body ?? {}, req.body?.quick === true)));
   api.post("/supplier-emails/tidy", wrap((req) => agents.tidy(req.body?.note, req.body?.email)));
   api.post("/supplier-emails", wrap((req) => agents.write(about(req.body ?? {}), user(req), req.body?.options, req.body?.own)));
   api.patch("/approvals/:id", wrap((req) => agents.edit(req.params.id, req.body?.payload ?? {}, user(req))));

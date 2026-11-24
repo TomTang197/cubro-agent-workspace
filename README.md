@@ -41,6 +41,8 @@ Set `GEMINI_API_KEY` and Google Gemini writes each post and supplier email from 
 
 The model writes at most 100 drafts per UTC day (`LLM_DAILY_DRAFT_LIMIT` to change), because the API has no sign-in of its own and every draft spends the key's quota; past the limit, drafts keep their template text until the next day.
 
+Supplier emails are shown with their key facts picked out: the order number, models, quantities, dates, prices and tracking number are listed above the email and highlighted in its text, and each is compared with the order in Infor LN, so a quantity, price or delivery date that differs is flagged. This is how the workspace shows the email only; the email itself and what is sent stay plain text. Rules find the usual forms, and the model, when one is set, reads each email once for the rest (at most 300 emails per UTC day, `LLM_DAILY_READ_LIMIT` to change). Whatever the model reports is shown only where the email has those exact words.
+
 Without a key, drafts come from the built-in templates. If a model call fails, that draft keeps its template text and the run's Model step says how many did and why. `OPENAI_API_KEY` (optionally `OPENAI_MODEL`, `OPENAI_BASE_URL`) uses an OpenAI-compatible model instead when no Gemini key is set.
 
 ## Run

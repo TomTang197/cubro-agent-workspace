@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api, day, shortDay, type ApprovalItem, type Compose, type EmailOption, type WriteList } from "../api";
 import { EmailOptions } from "../components/EmailOptions";
+import { KeyFacts, Marked, useFacts, type FactSheet } from "../components/KeyFacts";
 import { RecordLink } from "../components/Record";
 import { useApi } from "../useApi";
 
@@ -92,6 +93,9 @@ function Composer({ data, about, onOrder, onStarted }: { data: Compose; about: {
   const subject = data.replyTo || !topic ? data.subject : data.order ? `${data.order.id} — ${topic}` : `${topic[0].toUpperCase()}${topic.slice(1)}`;
   const empty = !chosen.length && !own.length;
   const [typing, setTyping] = useState(false);
+  // Their email with its numbers picked out, compared with the order chosen above.
+  const factsOf = (quick: boolean) => api<FactSheet>(`/supplier-emails/facts?${new URLSearchParams({ reply: data.replyTo!.id, order: data.order?.id ?? "", ...(quick && { quick: "1" }) })}`);
+  const facts = useFacts(data.replyTo ? `${data.replyTo.id} ${data.order?.id}` : null, factsOf, (f) => !!f.more);
   useEffect(() => onStarted(!empty || typing), [empty, typing]);
   const toggle = (o: EmailOption) => setPicked((p) => (p.includes(o.id) ? p.filter((x) => x !== o.id) : [...p, o.id]));
   async function save() {
@@ -109,7 +113,8 @@ function Composer({ data, about, onOrder, onStarted }: { data: Compose; about: {
           <div><span>Supplier</span><b><RecordLink kind="supplier" id={data.supplier.id}>{data.supplier.name}</RecordLink></b></div>
           <div><span>Purchase order</span><select aria-label="Purchase order" value={data.order?.id ?? ""} disabled={!empty} title={empty ? undefined : "Take out what you picked to change the order"} onChange={(e) => onOrder(e.target.value)}><option value="">{data.replyTo ? "The one their email names, if any" : "No particular order"}</option>{data.orders.map((o) => <option key={o.id} value={o.id}>{o.id} · {o.status}</option>)}{data.order && !data.orders.some((o) => o.id === data.order!.id) && <option value={data.order.id}>{data.order.id} · {data.order.status}</option>}</select></div>
         </div>
-        {data.replyTo && <details className="quoted" open><summary>{data.replyTo.from} wrote on {day(data.replyTo.receivedDateTime)}: {data.replyTo.subject}</summary><div className="letter-body">{data.replyTo.body}</div></details>}
+        {data.replyTo && <details className="quoted" open><summary>{data.replyTo.from} wrote on {day(data.replyTo.receivedDateTime)}: <Marked text={data.replyTo.subject} marks={facts?.subject} /></summary>
+          <KeyFacts sheet={facts} of="their email" /><div className="letter-body"><Marked text={data.replyTo.body} marks={facts?.body} /></div></details>}
         {data.waiting && <div className="banner" role="status">A draft about this is already waiting to be checked: <Link to={`/approvals/${data.waiting.id}?agent=supplier-outreach`}>{data.waiting.title}</Link>. You can add to that one instead of writing another.</div>}
         <h2>What do you want to say?</h2>
         <p className="small muted">{data.options.length ? "Pick as many as you need. Each one adds its words to the email." : "Nothing about this order or supplier suggests itself, so write your own line below."}</p>

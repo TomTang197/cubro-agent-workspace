@@ -4,6 +4,7 @@ import type { LlmProvider } from "../llm/index.js";
 import { savingFor } from "../savings.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
 import { composeDraft, composeParts, composeSubject, emailOptions, MAX_OWN_LINE, orderIn, tidyOwnLine, writeList, type ComposeInput } from "./compose.js";
+import { factSheet, readFacts, type Candidate, type FactContext, type FactSheet } from "./facts.js";
 import { FOLLOW_UP_DAYS, handledSupplierKeys, nzDate, nzDay as nzMidnight, planSupplierDrafts, RECENT_REPLY_DAYS, supplierRunSummary, type Draft, type SupplierPlan } from "./drafts.js";
 import { dateProblem, nzClock, nzDay, nzTime, shiftDay, shortDay } from "./nzTime.js";
 import { EVENT_LEAD_DAYS, buildSocialDrafts, busySocialSlots, socialBrief, takenSocialTopics } from "./social.js";
@@ -162,6 +163,47 @@ export class AgentService {
     // An agent draft already makes the ask it was written for.
     const made: string[] = { overdue: ["ship-date"], unconfirmed: ["confirm-order"], partial: ["balance"], low_stock: ["availability", "terms"], reply: [], new: [] }[p.reason];
     return emailOptions(input).filter((o) => !made.includes(o.id));
+  }
+
+  // What the model read in an email, asked once per email. A reading that failed is asked for again the next time.
+  private readings = new Map<string, Promise<Candidate[]>>();
+  private reading(text: string) {
+    const had = this.readings.get(text);
+    if (had) return had;
+    if (this.readings.size >= 500) this.readings.delete(this.readings.keys().next().value!);
+    const asked = readFacts(this.llm, text);
+    this.readings.set(text, asked);
+    asked.catch(() => { if (this.readings.get(text) === asked) this.readings.delete(text); });
+    return asked;
+  }
+
+  /** The key facts of an email. `quick` leaves the model out, so the page has the facts the rules find at once. */
+  private async facts(mail: { subject: string; body: string }, ctx: FactContext, quick: boolean): Promise<FactSheet> {
+    if (quick || !this.llm.read) return { ...factSheet(mail, ctx), ...(this.llm.read && { more: true }) };
+    // Without the model's reading the rules still stand, so a failed or limited model costs the reader nothing they had.
+    const read = await this.reading(`${mail.subject}\n\n${mail.body}`).catch(() => undefined);
+    return { ...factSheet(mail, ctx, read), ...(read && { readBy: this.llm.name }) };
+  }
+
+  /** The key facts in a supplier's email, compared with the order it is about. */
+  async emailFacts(q: ComposeQuery, quick: boolean) {
+    const { message, order, orders, items, supplier } = await this.composeInput(q);
+    if (!message) throw new HttpError(400, "Say which email to read.");
+    return this.facts(message, { order, orders, items, supplier: supplier.supplier, at: new Date(message.receivedDateTime) }, quick);
+  }
+
+  /** The key facts in a supplier email waiting to be checked, as it reads now (`shown`, with edits not saved yet), and in the email it answers. */
+  async draftFacts(id: string, shown: { subject?: unknown; body?: unknown }, quick: boolean) {
+    const a = this.find(id), p = a.payload;
+    if (p.type !== "supplier_email") throw new HttpError(400, "Only supplier emails have key facts.");
+    const [purchaseOrders, items] = await Promise.all([this.connectors.inforln.listPurchaseOrders(), this.connectors.inforln.listItems()]);
+    const orders = purchaseOrders.filter((po) => po.supplier === p.supplierId), written = (v: unknown, saved: string) => (typeof v === "string" ? v : saved);
+    const order = orders.find((po) => po.order === p.purchaseOrder) ?? (p.inReplyTo && orderIn(p.inReplyTo, orders));
+    const ctx = { order, orders, items, supplier: p.supplierId };
+    return {
+      draft: factSheet({ subject: written(shown.subject, p.subject), body: written(shown.body, p.body) }, { ...ctx, at: new Date(a.createdAt) }),
+      inReplyTo: p.inReplyTo && (await this.facts(p.inReplyTo, { ...ctx, at: new Date(p.inReplyTo.receivedDateTime) }, quick)),
+    };
   }
 
   async tidy(note: unknown, emailSoFar: unknown) {
