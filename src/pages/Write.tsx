@@ -31,7 +31,7 @@ export default function Write() {
         <Starts at={query ? at : ""} onPick={(next) => { if (mayGo()) go(next); }} />
         <div className="work-detail">
           <button type="button" className="link back" onClick={() => { if (mayGo()) go({}); }}>‹ Back to the emails and orders</button>
-          {!query && <section className="card write-none"><h2>Who are you writing to?</h2><p className="muted">Pick a supplier's email to answer it, a late order to chase it, or search for any supplier or order. What the email can say appears here, with the email beside it.</p></section>}
+          {!query && <section className="card write-none"><h2>Who are you writing to?</h2><p className="muted">Pick a supplier's email to answer it, a late order to chase it, or search for any supplier or order. What the email can say appears here, with the email beside it.</p><p className="small muted">Order confirmations and orders that are not late are left out of the lists. Search for the supplier or the order number to find them.</p></section>}
           {query && error && <div className="error">{error}</div>}
           {query && !error && !shown && <p className="muted">Reading the order and the supplier's emails…</p>}
           {shown && <Composer key={query} data={shown} about={about} onStarted={(on) => { started.current = on; }} onOrder={(order) => { if (mayGo()) go(about.reply ? { reply: about.reply, near: about.near, order } : { supplier: shown.supplier.id, order }); }} />}

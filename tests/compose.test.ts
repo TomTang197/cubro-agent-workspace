@@ -331,11 +331,11 @@ describe("writing a supplier email from the options", () => {
     // An order confirmation needs no answer, so it is found only by searching; news about an order comes before notices to every customer.
     expect(first.emails.filter((e) => e.topic === "confirmed").every((e) => !e.toAnswer)).toBe(true);
     expect(first.emails.filter((e) => e.toAnswer).some((e) => e.topic === "delay")).toBe(true);
-    // A confirmation that asks something wants an answer, and so does an email that only mentions confirming something else.
+    // An order confirmation is not listed, whatever its punctuation; an email that only mentions confirming something else is.
     const [s] = ln(store).suppliers, from = { name: s.contactName, address: s.email }, to = [{ name: "Priya Raman", address: "purchasing@cubro.example.co.nz" }];
     const mail = (id: string, body: string): MailMessage => ({ id, conversationId: `conv-${id}`, subject: "Artwork for the new cartons", from, to, body, bodyPreview: body, receivedDateTime: "2026-11-22T20:00:00.000Z", isDraft: false, folder: "Inbox" });
     const listed = writeList(ln(store).suppliers, ln(store).purchaseOrders, [mail("asks", "Thank you for your order. Which delivery address should we use?"), mail("artwork", "We will start the run once we confirm the artwork. Please send the final file."), mail("plain", "Thank you for your order.")], [], today).emails;
-    expect(listed.map((e) => [e.id, e.topic, e.toAnswer])).toEqual([["asks", "confirmed", true], ["artwork", "other", true], ["plain", "confirmed", false]]);
+    expect(listed.map((e) => [e.id, e.topic, e.toAnswer])).toEqual([["asks", "confirmed", false], ["artwork", "other", true], ["plain", "confirmed", false]]);
     // A mailbox lists only the latest it sent. With that list full, an email older than all of it may have been answered, so it is not offered.
     const ours = (n: number): MailMessage[] => Array.from({ length: n }, (_, i) => ({ ...mail(`sent-${i}`, "Thank you."), from: to[0], to: [from], folder: "Sent Items" as const, receivedDateTime: `2026-11-23T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}.000Z` }));
     const older = mail("older", "Do you have a new catalogue?");

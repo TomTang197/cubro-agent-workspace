@@ -181,7 +181,7 @@ export function emailOptions({ supplier: s, order: po, message: m, orders, items
 
 /** Where an email can start: a supplier's email nobody has answered, an order still to arrive, or the supplier alone. */
 export interface WriteList {
-  emails: { id: string; supplier: string; from: string; subject: string; at: string; topic: ReturnType<typeof emailTopic>; order?: string; /** Listed without searching for it: news that wants an answer (a plain order confirmation does not, one that asks something does), not about an order that has arrived. */ toAnswer: boolean; draft: boolean }[];
+  emails: { id: string; supplier: string; from: string; subject: string; at: string; topic: ReturnType<typeof emailTopic>; order?: string; /** Listed without searching for it: news that wants an answer, so not an order confirmation and not about an order that has arrived. A search finds those too. */ toAnswer: boolean; draft: boolean }[];
   orders: { id: string; supplier: string; status: string; due: string; daysLate: number; draft: boolean }[];
   suppliers: { id: string; name: string; contact: string; open: number }[];
 }
@@ -208,7 +208,7 @@ export function writeList(suppliers: LnSupplier[], purchaseOrders: LnPurchaseOrd
     seen.add(m.conversationId);
     if (m.receivedDateTime <= (answered.get(m.conversationId) ?? "") || m.receivedDateTime < since) return [];
     const po = orderIn(m, purchaseOrders.filter((o) => o.supplier === s.supplier)), topic = emailTopic(m);
-    return [{ id: m.id, supplier: s.name, from: m.from.name, subject: m.subject, at: m.receivedDateTime, topic, order: po?.order, toAnswer: (topic !== "confirmed" || m.body.includes("?")) && (!po || OPEN.includes(po.status)), draft: waiting.some((p) => p.inReplyTo?.id === m.id) || drafted(po?.order) }];
+    return [{ id: m.id, supplier: s.name, from: m.from.name, subject: m.subject, at: m.receivedDateTime, topic, order: po?.order, toAnswer: topic !== "confirmed" && (!po || OPEN.includes(po.status)), draft: waiting.some((p) => p.inReplyTo?.id === m.id) || drafted(po?.order) }];
   });
   return {
     // News about an order comes before a notice sent to every customer; within each, the newest first.
