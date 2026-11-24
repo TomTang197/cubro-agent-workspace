@@ -16,6 +16,7 @@ import { mergeSettings, validateSettings } from "./settings.js";
 import type { AgentId, Store } from "./store.js";
 
 const wrap = (fn: (req: Request, res: Response) => unknown) => (req: Request, res: Response, next: NextFunction) => Promise.resolve(fn(req, res)).then((r) => { if (!res.headersSent) res.json(r); }).catch(next);
+const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
 const agentId = (s: string): AgentId => { if (s !== "social-media" && s !== "supplier-outreach") throw new HttpError(404, `Unknown agent ${s}`); return s; };
 
 export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: string; env?: NodeJS.ProcessEnv; fetch?: FetchLike; now?: () => Date } = {}) {
@@ -103,6 +104,12 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
     return store.state.approvals.filter((a) => (!status || status === "all" || a.status === status) && (!agent || a.agent === agent) && (!q || a.title.toLowerCase().includes(q.toLowerCase())));
   }));
   api.get("/approvals/:id", wrap((req) => agents.find(req.params.id)));
+  api.get("/approvals/:id/options", wrap((req) => agents.draftOptions(req.params.id)));
+  // Supplier emails a person writes with the assistant: pick what to say, add a line of your own, and it goes to Drafts to check.
+  const about = (from: Record<string, unknown>) => ({ supplier: text(from.supplier), order: text(from.order), reply: text(from.reply), near: text(from.near) });
+  api.get("/supplier-emails/options", wrap((req) => agents.composeOptions(about(req.query), user(req))));
+  api.post("/supplier-emails/tidy", wrap((req) => agents.tidy(req.body?.note, req.body?.email)));
+  api.post("/supplier-emails", wrap((req) => agents.write(about(req.body ?? {}), user(req), req.body?.options, req.body?.own)));
   api.patch("/approvals/:id", wrap((req) => agents.edit(req.params.id, req.body?.payload ?? {}, user(req))));
   api.post("/approvals/:id/approve", wrap((req) => agents.decide("approve", req.params.id, user(req), req.body?.note, req.body?.payload)));
   api.post("/approvals/:id/reject", wrap((req) => agents.decide("reject", req.params.id, user(req), req.body?.note, req.body?.payload)));

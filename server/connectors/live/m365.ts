@@ -11,7 +11,7 @@ const MAX_ASSETS = 2000;
 
 interface GraphPage<T> { value: T[]; "@odata.nextLink"?: string; "@odata.count"?: number }
 interface GraphRecipient { emailAddress?: { name?: string; address?: string } }
-interface GraphMessage { id: string; conversationId?: string; from?: GraphRecipient; toRecipients?: GraphRecipient[]; subject?: string; bodyPreview?: string; body?: { content?: string }; receivedDateTime?: string; createdDateTime?: string; isDraft?: boolean }
+interface GraphMessage { id: string; conversationId?: string; from?: GraphRecipient; toRecipients?: GraphRecipient[]; replyTo?: GraphRecipient[]; subject?: string; bodyPreview?: string; body?: { content?: string }; receivedDateTime?: string; createdDateTime?: string; isDraft?: boolean }
 interface GraphEvent { id: string; subject?: string; start?: { dateTime: string }; end?: { dateTime: string }; location?: { displayName?: string }; categories?: string[]; organizer?: GraphRecipient }
 interface GraphDriveItem { id: string; name: string; webUrl?: string; folder?: object; file?: object }
 interface GraphChannelMessage { id: string; createdDateTime: string; messageType?: string; body?: { content?: string }; from?: { user?: { displayName?: string }; application?: { displayName?: string } } }
@@ -55,7 +55,7 @@ export function createLiveM365(env: Env, fetchImpl: FetchLike = fetch): M365Conn
   // Immutable IDs keep a message's ID the same when it moves from Drafts to Sent Items.
   const mailHeaders = { Prefer: 'IdType="ImmutableId", outlook.body-content-type="text"' };
   const toMessage = (m: GraphMessage, folder: MailMessage["folder"]): MailMessage => ({
-    id: m.id, conversationId: m.conversationId ?? m.id, from: person(m.from), to: (m.toRecipients ?? []).map(person), subject: m.subject ?? "",
+    id: m.id, conversationId: m.conversationId ?? m.id, from: person(m.from), to: (m.toRecipients ?? []).map(person), ...(m.replyTo?.length && { replyTo: m.replyTo.map(person) }), subject: m.subject ?? "",
     bodyPreview: m.bodyPreview ?? "", body: m.body?.content ?? "", receivedDateTime: utc(m.receivedDateTime ?? m.createdDateTime), isDraft: Boolean(m.isDraft), folder,
   });
   const drive = () => `/sites/${env.M365_SHAREPOINT_SITE_ID}/drive`;
@@ -92,14 +92,18 @@ export function createLiveM365(env: Env, fetchImpl: FetchLike = fetch): M365Conn
     },
     async listMessages(folder) {
       const folders = folder ? [folder] : (Object.keys(FOLDERS) as MailMessage["folder"][]);
-      const q = new URLSearchParams({ $top: "50", $orderby: "receivedDateTime desc", $select: "id,conversationId,from,toRecipients,subject,bodyPreview,body,receivedDateTime,createdDateTime,isDraft" });
+      const q = new URLSearchParams({ $top: "50", $orderby: "receivedDateTime desc", $select: "id,conversationId,from,toRecipients,replyTo,subject,bodyPreview,body,receivedDateTime,createdDateTime,isDraft" });
       const lists = await Promise.all(folders.map(async (f) => (await all<GraphMessage>(`${mailbox()}/mailFolders/${FOLDERS[f]}/messages?${q}`, mailHeaders, 300)).map((m) => toMessage(m, f))));
       return lists.flat().sort((a, b) => b.receivedDateTime.localeCompare(a.receivedDateTime));
     },
     async createDraft(msg) {
       const sample = msg.to.find((t) => isSampleAddress(t.address));
       if (sample) throw new ConnectorError("m365", `${sample.address} is a sample-data address. The live mailbox only sends to real addresses, so connect Infor LN before sending supplier emails.`);
-      const created = await graph<GraphMessage>(`${mailbox()}/messages`, { method: "POST", headers: mailHeaders, body: { subject: msg.subject, body: { contentType: "Text", content: msg.body }, toRecipients: msg.to.map((t) => ({ emailAddress: t })) } });
+      const toRecipients = msg.to.map((t) => ({ emailAddress: t }));
+      // A reply is made from the message it answers, so Outlook files it in that conversation and quotes the original under our text.
+      const created = msg.inReplyTo
+        ? await graph<GraphMessage>(`${mailbox()}/messages/${encodeURIComponent(msg.inReplyTo)}/createReply`, { method: "POST", headers: mailHeaders, body: { message: { subject: msg.subject, toRecipients }, comment: msg.body } })
+        : await graph<GraphMessage>(`${mailbox()}/messages`, { method: "POST", headers: mailHeaders, body: { subject: msg.subject, body: { contentType: "Text", content: msg.body }, toRecipients } });
       return toMessage(created, "Drafts");
     },
     async sendDraft(id) {

@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { AGENT_NAMES, STAFF, day, when, type ActivityLine } from "../api";
 import { useApi } from "../useApi";
 
-const VERB: Record<ActivityLine["kind"], string> = { approved: "approved", part_done: "started approving", sent_back: "sent back", asked: "asked for drafts", changed: "changed a draft", admin: "changed the workspace" };
+const VERB: Record<ActivityLine["kind"], string> = { approved: "approved", part_done: "started approving", sent_back: "sent back", asked: "asked for drafts", wrote: "wrote a draft", changed: "changed a draft", admin: "changed the workspace" };
 const KINDS: { id: ActivityLine["kind"] | ""; label: string }[] = [{ id: "", label: "Everything" }, { id: "approved", label: "Approved" }, { id: "part_done", label: "Part done" }, { id: "sent_back", label: "Sent back" }, { id: "asked", label: "Asked for drafts" }];
 const systemsOf = (a: ActivityLine) => [...new Set(a.went.map((w) => w.system))];
 
@@ -42,7 +42,7 @@ export default function Activity() {
           {data && rows.length === 0 && <p className="muted pad">Nothing matches. <button type="button" className="link" onClick={() => { setKind(""); setWho(""); setSystem(""); setQ(""); }}>Show everything</button></p>}
           {rows.map((a) => (
             <button type="button" role="listitem" key={a.id} className={`list-row ${shown?.id === a.id ? "sel" : ""}`} aria-current={shown?.id === a.id} onClick={() => setPicked(a.id)}>
-              <div className="row between gap"><span className="small muted">{when(a.at)}</span><span className={`pill plain ${a.kind === "part_done" ? "warn" : a.kind === "approved" ? "ok" : a.kind === "sent_back" ? "bad" : ""}`}>{KINDS.find((k) => k.id === a.kind)?.label ?? "Change"}</span></div>
+              <div className="row between gap"><span className="small muted">{when(a.at)}</span><span className={`pill plain ${a.kind === "part_done" ? "warn" : a.kind === "approved" ? "ok" : a.kind === "sent_back" ? "bad" : ""}`}>{KINDS.find((k) => k.id === a.kind)?.label ?? (a.kind === "wrote" ? "Written" : "Change")}</span></div>
               <div className="title"><b>{a.actor}</b> {VERB[a.kind]}</div>
               <div className="small">{a.what}</div>
               {a.went.length > 0 && <div className="went">{systemsOf(a).map((s) => <span className="chip" key={s}>→ {s}</span>)}</div>}

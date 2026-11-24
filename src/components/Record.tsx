@@ -19,12 +19,12 @@ export function RecordLink({ kind, id, children, className }: { kind: RecordKind
   return <Link className={className ?? "record-link"} to={to(kind, id)} title={`Open this ${kindLabel(kind).toLowerCase()}`}>{children}</Link>;
 }
 
-function Linked({ item }: { item: LinkedItem }) {
+function Linked({ item, order }: { item: LinkedItem; order?: string }) {
   const body = <><span className="linked-title">{item.title}</span>{item.subtitle && <span className="small muted">{item.subtitle}</span>}</>;
   const status = item.status && <span className={`pill plain ${tone(item.status)}`}>{item.status}</span>;
   if (item.kind === "draft") return <Link className="linked go" to={`/approvals/${item.id}?status=all&view=list&agent=all`}><span>{body}</span>{status}</Link>;
   if (item.kind && item.id) return <RecordLink className="linked go" kind={item.kind} id={item.id}><span>{body}</span>{status}</RecordLink>;
-  return <div className="linked"><span>{body}</span>{status}</div>;
+  return <div className="linked"><span>{body}</span><span className="row gap">{item.reply && <Link className="btn small" to={`/write?reply=${encodeURIComponent(item.reply)}${order ? `&near=${encodeURIComponent(order)}` : ""}`}>Reply</Link>}{status}</span></div>;
 }
 
 /** One record with everything the other systems hold about it. */
@@ -47,12 +47,13 @@ export function RecordView({ kind, id, onClose, page }: { kind: RecordKind; id: 
       {error && <div className="error">{error} <button type="button" className="link" onClick={reload}>Try again</button></div>}
       {!d && !error && loading && <p className="muted">Looking it up in the four systems…</p>}
       {d && <>
+        {(kind === "supplier" || (kind === "order" && d.status !== "Received" && d.status !== "Closed")) && <p className="record-act"><Link className="btn" to={`/write?${kind}=${encodeURIComponent(id)}`}>{kind === "supplier" ? "Write to this supplier" : "Write to the supplier about this order"}</Link></p>}
         <dl className="facts">{d.fields.map((f) => <div key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></div>)}</dl>
         {d.links.length === 0 && <p className="muted small">Nothing in the other systems mentions this yet.</p>}
         {d.links.map((l) => (
           <section className="linked-group" key={l.label}>
             <h3>{l.label} <span className="count">{l.items.length}</span><span className="from">{l.system}</span></h3>
-            {l.items.map((item, i) => <Linked key={`${item.id ?? item.title}-${i}`} item={item} />)}
+            {l.items.map((item, i) => <Linked key={`${item.id ?? item.title}-${i}`} item={item} order={kind === "order" ? id : undefined} />)}
           </section>
         ))}
         {!page && <p className="record-foot"><Link to={`/records/${kind}/${encodeURIComponent(id)}`}>Open in the {RECORD_KINDS.find((k) => k.kind === kind)!.label.toLowerCase()} list</Link></p>}

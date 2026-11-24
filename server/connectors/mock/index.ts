@@ -15,8 +15,10 @@ export function createMockConnectors(store: Store, env: Env = {}): Connectors {
     },
     async listEvents(from, to) { await delay(); return sys().m365.events.filter((e) => e.start >= from && e.start <= to); },
     async listMessages(folder) { await delay(); return sys().m365.messages.filter((m) => !folder || m.folder === folder); },
-    async createDraft(msg) {
-      const created = { ...msg, id: store.nextId("AAMkDraft"), conversationId: store.nextId("conv"), receivedDateTime: new Date().toISOString(), isDraft: true, folder: "Drafts" as const, bodyPreview: msg.body.slice(0, 120) };
+    async createDraft({ inReplyTo, ...msg }) {
+      const answered = inReplyTo ? sys().m365.messages.find((m) => m.id === inReplyTo) : undefined;
+      if (inReplyTo && !answered) throw new Error(`Message ${inReplyTo} not found`);
+      const created = { ...msg, id: store.nextId("AAMkDraft"), conversationId: answered?.conversationId ?? store.nextId("conv"), receivedDateTime: new Date().toISOString(), isDraft: true, folder: "Drafts" as const, bodyPreview: msg.body.slice(0, 120) };
       sys().m365.messages.unshift(created);
       return created;
     },

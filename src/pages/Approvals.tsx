@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { fromNzInput, nzDay, shortDay } from "../../server/agents/nzTime";
-import { AGENT_NAMES, DRAFT_NOUN, RESTART, STATUS_LABEL, TEAMS, agentFor, api, getUser, scrollToTop, teamOf, todayNz, weekday, when, type AgentId, type ApprovalItem } from "../api";
+import { AGENT_NAMES, DRAFT_NOUN, RESTART, STATUS_LABEL, TEAMS, agentFor, api, getUser, scrollToTop, teamOf, todayNz, weekday, when, day, type AgentId, type ApprovalItem, type EmailOption } from "../api";
+import { EmailOptions } from "../components/EmailOptions";
 import { RecordLink } from "../components/Record";
 import { askBeforeLeaving, mayLeave } from "../leaving";
 
@@ -10,6 +11,8 @@ import { useApi } from "../useApi";
 import { SocialFields, SocialFootnote, SocialMeta, socialEdits, socialPatch, socialProblem, type SocialEdits } from "./SocialPost";
 
 const UNDO_MS = 8000;
+/** Where a supplier email is signed off: what is added to it goes in above this. */
+const SIGN_OFF = /((?:Kind|Best|Warm) regards|Ng\u0101 mihi|Thanks|Cheers),[ \t]*\n([^\n]+)(\n[^\n,]+, (?=Cubro Ltd))?/i;
 /** A decision that has been made but not yet sent on, so it can still be undone. */
 type Held = { item: ApprovalItem; kind: "approve" | "reject"; note: string; by: string; changes?: Changes };
 /** What the reviewer changed: `patch` goes to the server with the decision, `edits` puts their typing back if it is undone. */
@@ -131,6 +134,7 @@ export default function Approvals() {
       <div className="toolbar">
         {!focus && <div className="seg">{(["pending", "approved", "rejected", "all"] as const).map((s) => <button key={s} className={status === s ? "on" : ""} onClick={() => set({ status: s === "pending" ? "" : s, view: "list" })}>{s === "all" ? "All" : STATUS_LABEL[s]}</button>)}</div>}
         <select aria-label="Whose drafts" value={agent} onChange={(e) => set({ agent: e.target.value || "all" })}><option value="">Both teams' drafts</option><option value="social-media">Marketing: social posts</option><option value="supplier-outreach">Purchasing: supplier emails</option></select>
+        {agent === "supplier-outreach" && <Link className="btn" to="/write" onClick={guard}>Write a supplier email</Link>}
         {!focus && <input type="search" placeholder="Find a draft" aria-label="Find a draft" value={q} onChange={(e) => setQ(e.target.value)} />}
         {!focus && <label className="sort"><span className="small muted">Sort by</span><select aria-label="Sort by" value={sort} onChange={(e) => setSort(e.target.value)}><option value="newest">Newest first</option><option value="oldest">Oldest first</option><option value="urgent">Urgent first</option><option value="name">Name, A to Z</option></select></label>}
         {focus && list.length > 0 && <span className="queue-at"><b>Draft {at + 1} of {list.length}</b>
@@ -202,17 +206,22 @@ function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDe
   }
   const shown = item;
   const revert = () => { if (p.type === "social_post") setSocial(socialEdits(p)); else { setText(p.body); setSubject(p.subject); } setChanging(false); };
-  const signOff = p.type === "supplier_email" ? /((?:Kind|Best|Warm) regards|Ng\u0101 mihi|Thanks|Cheers),[ \t]*\n([^\n]+)(\nPurchasing Officer, )?/i.exec(text) : null;
+  const signOff = p.type === "supplier_email" ? SIGN_OFF.exec(text) : null;
+  // More to say, offered once the reviewer chooses to change a supplier email: one click adds the words above the sign-off.
+  const adding = pending && changing && !started && p.type === "supplier_email";
+  const { data: options } = useApi<EmailOption[]>(adding ? `/approvals/${item.id}/options` : null);
+  const addPara = (para: string) => setText((t) => { const at = SIGN_OFF.exec(t)?.index ?? t.length; return `${t.slice(0, at).trimEnd()}\n\n${para}${at < t.length ? `\n\n${t.slice(at)}` : ""}`; });
+  const toggle = (o: EmailOption) => (text.includes(o.text) ? setText((t) => t.replace(o.text, "").replace(/\n{3,}/g, "\n\n")) : addPara(o.text));
   const signedBy = signOff?.[2].trim();
   const me = getUser();
   // The drafted title is a Purchasing one, so it only stays under a Purchasing name.
-  const signAsMe = () => signOff && setText(`${text.slice(0, signOff.index)}${signOff[1]},\n${me}${TEAMS.Purchasing.includes(me) ? signOff[3] ?? "" : signOff[3] ? "\n" : ""}${text.slice(signOff.index + signOff[0].length)}`);
+  const signAsMe = () => signOff && setText(`${text.slice(0, signOff.index)}${signOff[1]},\n${me}${TEAMS.Purchasing.includes(me) && signOff[3] === "\nPurchasing Officer, " ? signOff[3] : signOff[3] ? "\n" : ""}${text.slice(signOff.index + signOff[0].length)}`);
 
   return (
     <section className="card detail">
-      <div className="row between wrap"><span className="small muted">{AGENT_NAMES[item.agent]} · drafted {when(item.createdAt)}</span>{pending && item.priority === "high" && <span className="pill warn">Urgent</span>}{shown.status !== "pending" && <span className={`pill ${shown.status === "approved" ? "ok" : "bad"} plain`}>{STATUS_LABEL[shown.status]} by {shown.decidedBy} {shown.decidedAt && when(shown.decidedAt)}</span>}</div>
+      <div className="row between wrap"><span className="small muted">{item.writtenBy ? `Written by ${item.writtenBy} with ${AGENT_NAMES[item.agent]} · ${when(item.createdAt)}` : `${AGENT_NAMES[item.agent]} · drafted ${when(item.createdAt)}`}</span>{pending && item.priority === "high" && <span className="pill warn">Urgent</span>}{shown.status !== "pending" && <span className={`pill ${shown.status === "approved" ? "ok" : "bad"} plain`}>{STATUS_LABEL[shown.status]} by {shown.decidedBy} {shown.decidedAt && when(shown.decidedAt)}</span>}</div>
       <h2>{item.title}</h2>
-      <div className="why"><b>Why the assistant drafted this</b><p>{item.rationale}</p>
+      <div className="why"><b>{item.writtenBy ? "How this was written" : "Why the assistant drafted this"}</b><p>{item.rationale}</p>
         <div className="chips">{item.sources.map((s) => <span className="chip" key={s.ref + s.label}><b>{s.system}</b> {s.label}</span>)}</div>
       </div>
       {p.type === "social_post" ? (
@@ -221,10 +230,11 @@ function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDe
         <div className="meta-grid">
           <div><span>To</span><b>{p.to.name} &lt;{p.to.address}&gt;</b></div>
           <div><span>Supplier</span><b><RecordLink kind="supplier" id={p.supplierId}>{p.supplierName}</RecordLink> ({p.supplierId})</b></div>
-          <div><span>Reason</span><b>{{ overdue: "Overdue order", unconfirmed: "Unconfirmed order", low_stock: "Low stock", partial: "Partial delivery" }[p.reason]}</b></div>
+          <div><span>Reason</span><b>{{ overdue: "Overdue order", unconfirmed: "Unconfirmed order", low_stock: "Low stock", partial: "Partial delivery", reply: "Reply to their email", new: "New email" }[p.reason]}</b></div>
           {p.purchaseOrder ? <div><span>Purchase order</span><b><RecordLink kind="order" id={p.purchaseOrder}>{p.purchaseOrder}</RecordLink></b></div> : <div><span>Items</span><b>{p.items.map((code, i) => <span key={code}>{i > 0 && ", "}<RecordLink kind="product" id={code}>{code}</RecordLink></span>)}</b></div>}
         </div>
       )}
+      {p.type === "supplier_email" && p.inReplyTo && <details className="quoted"><summary>In reply to {p.inReplyTo.from}'s email of {day(p.inReplyTo.receivedDateTime)}: {p.inReplyTo.subject}</summary><div className="letter-body">{p.inReplyTo.body}</div></details>}
       {pending && (!changing || started) ? (
         <div className="letter">
           {p.type === "supplier_email" && <p className="letter-subject"><span className="small muted">Subject</span>{subject}</p>}
@@ -235,6 +245,8 @@ function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDe
           </>}
         </div>
       ) : <>
+        {adding && <div className="add-to"><b>Add to this email</b>
+          <EmailOptions options={options ?? []} isOn={(o) => text.includes(o.text)} onToggle={toggle} onOwn={addPara} tidy={(note) => api("/supplier-emails/tidy", { method: "POST", body: { note, email: text } })} /></div>}
         {p.type === "supplier_email" && <label className="field"><span>Subject</span><input value={subject} disabled={!pending} onChange={(e) => setSubject(e.target.value)} /></label>}
         {p.type === "social_post" ? <SocialFields p={p} edits={social!} onChange={setSocial} pending={pending} /> : (
           <label className="field"><span>Email</span>
@@ -242,7 +254,7 @@ function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDe
         )}
       </>}
       {lateReplyBy && <div className="error" role="alert">This email asks for a reply by {lateReplyBy}, which has passed. {started ? "It is already saved as a draft in the purchasing mailbox, so it cannot be changed here. Change the date in that draft first, or send it as it is." : "Change the date before you send it."}</div>}
-      {pending && !started && signOff && signedBy && signedBy !== me && <p className="small sign-note">This email is signed <b>{signedBy}</b>, the name the assistant puts on every supplier email, and you are approving as <b>{me}</b>. <button type="button" className="link" onClick={signAsMe}>Sign it as {me} instead</button></p>}
+      {pending && !started && signOff && signedBy && signedBy !== me && <p className="small sign-note">This email is signed <b>{signedBy}</b>, {item.writtenBy === signedBy ? "who wrote it" : "the name the assistant puts on every supplier email"}, and you are approving as <b>{me}</b>. <button type="button" className="link" onClick={signAsMe}>Sign it as {me} instead</button></p>}
       <p className="small muted">Doing this by hand: ~{item.estimate.manualMinutes} min. Reviewing the draft: ~{item.estimate.reviewMinutes} min{item.edited ? " (+4 min for edits)" : ""}.</p>
       {pending && <>
         <label className="field"><span>Note for the team (optional)</span><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Why you sent it back, or anything the team should know" /></label>
@@ -258,7 +270,7 @@ function Detail({ item, onDecide, onDirty, restore }: { item: ApprovalItem; onDe
           </div>
           {!started && <div>
             {changing || dirty ? <button className="btn" onClick={revert}>Undo my changes</button> : <button className="btn" onClick={() => setChanging(true)}>Change it</button>}
-            <small>{changing || dirty ? "Puts the draft back to how the assistant wrote it." : `Fix the ${p.type === "social_post" ? "wording, hashtags or date" : "subject or wording"} first. Nothing goes out until you approve.`}</small>
+            <small>{changing || dirty ? "Puts the draft back to how the assistant wrote it." : `${p.type === "social_post" ? "Fix the wording, hashtags or date" : "Fix the wording, or pick more for it to say,"} first. Nothing goes out until you approve.`}</small>
           </div>}
           {!started && <div>
             <button className="btn" onClick={() => act("reject")}>Send back</button>

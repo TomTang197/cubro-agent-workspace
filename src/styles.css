@@ -180,3 +180,16 @@ html, body, #root { height:100%; }
   /* Five filters do not fit one row on a phone: they wrap, each still readable. */
   .seg { flex-wrap:wrap; max-width:100%; } .seg button { flex:1 0 auto; border-right:none; box-shadow:0 0 0 .5px var(--accent); }
   .who-name { display:none; } .search input { font-size:16px; } .search-results { position:fixed; top:52px; left:8px; right:8px; width:auto; } }
+
+/* writing a supplier email by picking what it says */
+.write { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; align-items:start; } .write .card { margin-bottom:0; } .write h2 { margin:14px 0 4px; } .write .card:last-child h2 { margin-top:0; } .write .meta-grid select { width:100%; }
+.options { display:flex; flex-direction:column; gap:12px; margin:10px 0 4px; } .option-group { display:flex; flex-direction:column; gap:6px; } .option-list { display:flex; flex-wrap:wrap; gap:6px; }
+.option { text-align:left; color:var(--text); border-color:var(--border); border-radius:999px; padding:6px 13px 6px 9px; display:inline-flex; align-items:center; gap:7px; } .option i { font-style:normal; width:16px; height:16px; border-radius:50%; display:grid; place-items:center; font-size:11px; background:var(--accent-soft); color:var(--accent); flex:none; }
+.option:hover { border-color:var(--accent); } .option.on { background:var(--accent); border-color:var(--accent); color:var(--accent-fg); } .option.on i { background:#fff; }
+.own-line { display:flex; gap:8px; align-items:flex-start; } .own-line textarea { flex:1; min-width:0; } .own-line .btn { flex:none; white-space:nowrap; }
+.own-added { display:flex; justify-content:space-between; gap:10px; align-items:flex-start; border:1px solid #7919FF33; background:#7919FF0a; border-radius:var(--radius); padding:6px 10px; font-size:13px; } .own-added .link { flex:none; }
+.quoted { border-left:3px solid var(--border); padding:2px 0 2px 12px; margin-bottom:12px; } .quoted summary { cursor:pointer; color:var(--muted); font-size:13px; } .quoted .letter-body { font-size:13px; margin-top:8px; color:var(--muted); }
+.letter.empty .letter-body { color:var(--muted); } .add-to { border:1px solid #7919FF26; background:#7919FF0a; border-radius:var(--radius); padding:10px 12px; margin-bottom:12px; }
+.record-act { margin:0 0 12px; } .btn.small { padding:2px 9px; font-size:12px; white-space:nowrap; } .linked > .row { flex:none; }
+@media (max-width: 860px) { .write { grid-template-columns:minmax(0,1fr); } .own-line { flex-direction:column; align-items:stretch; } }
+@media (min-width: 861px) { .write > .card:last-child { position:sticky; top:0; } }
