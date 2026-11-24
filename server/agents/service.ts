@@ -204,7 +204,7 @@ export class AgentService {
     const record = (step: string, system: string, ref: string, label: string, replaces?: string) => {
       this.unlessRestored(state);
       const at = replaces ? outcome.findIndex((o) => o.step === replaces) : -1;
-      const done = { system, ref, label, step, at: new Date().toISOString() };
+      const done = { system, ref, label, step, at: new Date().toISOString(), by };
       if (at >= 0) outcome[at] = done; else outcome.push(done);
       a.reviewerNote = note;
       this.store.save();

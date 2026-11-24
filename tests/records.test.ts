@@ -2,7 +2,9 @@ import request from "supertest";
 import { describe, expect, it } from "vitest";
 import { createApp } from "../server/app";
 import { templateProvider } from "../server/llm";
-import type { ActivityLine, Notice, RecordDetail, RecordRow, SearchHit } from "../server/records";
+import { AgentService } from "../server/agents/service";
+import { createConnectors } from "../server/connectors";
+import { activityRecord, type ActivityLine, type Notice, type RecordDetail, type RecordRow, type SearchHit } from "../server/records";
 import { Store, type SupplierEmailPayload } from "../server/store";
 
 const today = new Date("2026-11-23T00:00:00Z");
@@ -128,6 +130,29 @@ describe("records and what links them", () => {
 });
 
 describe("activity record and notifications", () => {
+  it("records the email that went out when the follow-up task then failed, and one line once it is finished", async () => {
+    const store = new Store({ today }), connectors = createConnectors(store, {});
+    const agents = new AgentService(store, connectors, templateProvider, () => today);
+    const draft = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;
+    const createTask = connectors.clickup.createTask.bind(connectors.clickup);
+    let fail = true;
+    connectors.clickup.createTask = async (input) => { if (fail) throw new Error("ClickUp: 503 from api.clickup.com."); return createTask(input); };
+    await expect(agents.approve(draft.id, "Priya Raman")).rejects.toThrow(/next step failed/);
+    expect(draft.status).toBe("pending");
+
+    const part = activityRecord(store.state).filter((l) => l.approvalId === draft.id);
+    expect(part).toHaveLength(1);
+    expect(part[0]).toMatchObject({ actor: "Priya Raman", kind: "approved", what: draft.title, partial: true });
+    expect(part[0].went.map((w) => w.system)).toEqual(["Microsoft 365"]);
+
+    fail = false;
+    await agents.approve(draft.id, "Mark Jensen");
+    const done = activityRecord(store.state).filter((l) => l.approvalId === draft.id);
+    expect(done).toHaveLength(1);
+    expect(done[0].actor).toBe("Mark Jensen");
+    expect(done[0].went.map((w) => w.system)).toEqual(["Microsoft 365", "ClickUp"]);
+    expect(done[0].partial).toBeUndefined();
+  });
   it("records who approved a draft and which systems it went to", async () => {
     const { app, store } = setup();
     const draft = store.state.approvals.find((a) => a.status === "pending" && a.payload.type === "supplier_email")!;

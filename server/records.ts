@@ -180,11 +180,13 @@ export async function searchRecords(c: Connectors, approvals: ApprovalItem[], q:
 }
 
 /** One line of the activity record: who did what, and for an approval, which systems it went to. */
-export interface ActivityLine { id: string; at: string; actor: string; kind: "approved" | "sent_back" | "asked" | "changed" | "admin"; what: string; went: { system: string; label: string }[]; approvalId?: string; agent?: AgentId; note?: string; }
+export interface ActivityLine { id: string; at: string; actor: string; kind: "approved" | "sent_back" | "asked" | "changed" | "admin"; what: string; went: { system: string; label: string }[]; approvalId?: string; agent?: AgentId; note?: string; /** Approving began and some steps went out, but a later step failed and the draft still waits. */ partial?: boolean; }
 
 /** Where an approved draft went. Each step is recorded as it happens; sample history from before that is described by what approving that kind of draft does. */
 export function wentTo(a: ApprovalItem): { system: string; label: string }[] {
-  if (a.status !== "approved") return [];
+  if (a.status === "rejected") return [];
+  // Still waiting, but approving it got part of the way: what was done has left Cubro and belongs on the record.
+  if (a.status === "pending") return (a.outcome ?? []).map((o) => ({ system: o.system, label: o.label }));
   if (a.outcome?.length) return a.outcome.map((o) => ({ system: o.system, label: o.label }));
   return a.payload.type === "supplier_email"
     ? [{ system: "Microsoft 365", label: `Email sent to ${a.payload.to.address}` }, { system: "ClickUp", label: "Follow-up task added to the Purchasing list" }]
@@ -197,12 +199,19 @@ export function activityRecord(state: WorkspaceState): ActivityLine[] {
     id: `decision-${a.id}`, at: a.decidedAt!, actor: a.decidedBy ?? "Staff member", kind: a.status === "approved" ? "approved" : "sent_back", what: a.title,
     went: wentTo(a), approvalId: a.id, agent: a.agent, note: a.reviewerNote || undefined,
   }));
+  const partDone = state.approvals.filter((a) => a.status === "pending" && a.outcome?.length).map((a): ActivityLine => {
+    const last = a.outcome![a.outcome!.length - 1];
+    return {
+      id: `part-${a.id}`, at: last.at ?? a.createdAt, actor: last.by ?? "Staff member", kind: "approved", what: a.title, went: wentTo(a), approvalId: a.id, agent: a.agent,
+      note: a.reviewerNote || undefined, partial: true,
+    };
+  });
   const asked = state.runs.map((r): ActivityLine => ({ id: `run-${r.id}`, at: r.finishedAt, actor: r.triggeredBy === "Schedule" ? AGENTS[r.agent].name : r.triggeredBy, kind: "asked", what: r.summary, went: [], agent: r.agent }));
   const other = state.activity.filter((e) => !["approved", "rejected", "ran agent"].includes(e.action)).map((e): ActivityLine => ({
     id: e.id, at: e.at, actor: e.actor, kind: e.action === "edited draft" ? "changed" : "admin",
     what: e.action === "edited draft" ? e.detail : `${e.action[0].toUpperCase()}${e.action.slice(1)}: ${e.detail}`, went: [],
   }));
-  return [...decisions, ...asked, ...other].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 300);
+  return [...decisions, ...partDone, ...asked, ...other].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 300);
 }
 
 export interface Notice { id: string; at: string; text: string; to: string; tone?: "warn" | "ok"; }

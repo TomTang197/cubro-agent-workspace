@@ -24,7 +24,7 @@ export interface ApprovalItem {
   originalPayload: SocialPostPayload | SupplierEmailPayload;
   estimate: { manualMinutes: number; reviewMinutes: number };
   /** What approving has done so far. A step that is listed is not repeated when an approval that failed part-way is tried again. */
-  outcome?: { system: string; ref: string; label: string; step?: string; at?: string }[];
+  outcome?: { system: string; ref: string; label: string; step?: string; at?: string; by?: string }[];
 }
 
 export interface SocialPostPayload {
