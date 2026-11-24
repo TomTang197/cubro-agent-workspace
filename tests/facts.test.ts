@@ -73,6 +73,10 @@ describe("key facts in an email", () => {
     const quote = "PO50001: 40 x 98100 Caro bed, electric and low @ NZD 2890.00 / 10 x ZZ200 @ NZD 55.50";
     expect(read(quote).facts.filter((f) => f.check !== "same")).toEqual([]);
     expect(fact(quote, "NZD 2890.00")).toMatchObject({ about: "98100" });
+    // A total ahead of the items does not turn the prices that follow their items into the next item's.
+    const totalled = "PO50001 total NZD 116,155.00: 98100 Caro bed @ NZD 2890.00, ZZ200 @ NZD 55.50";
+    expect(read(totalled).facts.filter((f) => f.check !== "same")).toEqual([]);
+    expect(fact(totalled, "NZD 116,155.00")).toMatchObject({ record: "the order total" });
     const mixed = "PO50001: 98100 is short, so we can send 30 units now and 10 units of ZZ200, at NZD 55.50 for ZZ200.";
     expect(fact(mixed, "30 units")).toEqual({ kind: "quantity", text: "30 units", about: "98100", record: "of 40 ordered" });
     expect(fact(mixed, "10 units")).toMatchObject({ about: "ZZ200", check: "same" });

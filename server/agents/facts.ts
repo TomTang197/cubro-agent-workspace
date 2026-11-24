@@ -151,12 +151,14 @@ export function keyFacts(full: string, ctx: FactContext, extra: Candidate[] = []
   const ours = (s: Span) => { const named = spans.filter((o) => o.kind === "order" && o.end <= s.start).at(-1); return !named || orderFor(named)?.order === po?.order; };
   // The order line a quantity or a price is about: the item named in the same sentence, else the order's only line.
   // Where the sentence names several items, the figure goes with the item straight after it ("40 x 98100"); failing that, a sentence
-  // that puts such figures before its first item keeps doing so, and any other sentence puts them after ("98100: 40 units, ZZ200: 10 units").
+  // that puts such figures before its items and none after the last keeps doing so, and any other sentence puts them after their item
+  // ("98100: 40 units, ZZ200: 10 units", also behind a total: "total NZD 116,155.00: 98100 @ NZD 2890.00, ZZ200 @ NZD 55.50").
   const lineFor = (s: Span): LnPurchaseOrderLine | undefined => {
     if (!po) return undefined;
     const { from, to } = sentence(text, s.start, s.end), items = spans.filter((i) => i.kind === "item" && i.start >= from && i.end <= to && itemFor(i));
     const after = items.find((i) => i.start >= s.end), before = items.filter((i) => i.end <= s.start).at(-1);
-    const next = after && (ITEM_NEXT.test(text.slice(s.end, after.start)) || spans.some((o) => o.kind === s.kind && o.start >= from && o.end <= items[0].start));
+    const alike = spans.filter((o) => o.kind === s.kind && o.start >= from && o.end <= to);
+    const next = after && (ITEM_NEXT.test(text.slice(s.end, after.start)) || (alike.some((o) => o.end <= items[0].start) && !alike.some((o) => o.start >= items.at(-1)!.end)));
     const item = next ? after : before ?? after;
     return item ? po.lines.find((l) => l.item === itemFor(item)!.item) : items.length || po.lines.length !== 1 ? undefined : po.lines[0];
   };
