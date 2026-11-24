@@ -1,9 +1,9 @@
 import type { AgentRun, ApprovalItem, SavingsEntry, Settings, ActivityEntry, AgentId } from "../server/store";
 import type { ConnectorStatus } from "../server/connectors/types";
 import type { SavingsLine } from "../server/savings";
-import type { ComposeParts, EmailOption } from "../server/agents/compose";
+import type { ComposeParts, EmailOption, WriteList } from "../server/agents/compose";
 import type { ActivityLine, LinkedItem, Notice, RecordDetail, RecordKind, RecordRow, SearchHit } from "../server/records";
-export type { EmailOption };
+export type { EmailOption, WriteList };
 /** What the page for writing a supplier email shows before anything is picked. */
 export interface Compose extends ComposeParts {
   supplier: { id: string; name: string }; order?: { id: string; status: string }; orders: { id: string; status: string }[];

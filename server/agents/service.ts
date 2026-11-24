@@ -3,7 +3,7 @@ import { addDays, isoDate } from "../data/rng.js";
 import type { LlmProvider } from "../llm/index.js";
 import { savingFor } from "../savings.js";
 import type { AgentId, AgentRun, ApprovalItem, SocialPostPayload, Store, SupplierEmailPayload } from "../store.js";
-import { composeDraft, composeParts, composeSubject, emailOptions, MAX_OWN_LINE, orderIn, tidyOwnLine, type ComposeInput } from "./compose.js";
+import { composeDraft, composeParts, composeSubject, emailOptions, MAX_OWN_LINE, orderIn, tidyOwnLine, writeList, type ComposeInput } from "./compose.js";
 import { FOLLOW_UP_DAYS, handledSupplierKeys, nzDate, nzDay as nzMidnight, planSupplierDrafts, RECENT_REPLY_DAYS, supplierRunSummary, type Draft, type SupplierPlan } from "./drafts.js";
 import { dateProblem, nzClock, nzDay, nzTime, shiftDay, shortDay } from "./nzTime.js";
 import { EVENT_LEAD_DAYS, buildSocialDrafts, busySocialSlots, socialBrief, takenSocialTopics } from "./social.js";
@@ -126,6 +126,13 @@ export class AgentService {
     // is only where the reply started, so it counts last: an email shown there can be about another of the supplier's orders.
     const near = orders.find((po) => po.order === q.near);
     return { supplier, order: theirs ?? (message ? orderIn(message, orders) ?? near : undefined), message, orders, items, today: this.now() };
+  }
+
+  /** What the writing page lists to start from. */
+  async writeList() {
+    const [suppliers, purchaseOrders, messages] = await Promise.all([this.connectors.inforln.listSuppliers(), this.connectors.inforln.listPurchaseOrders(), this.connectors.m365.listMessages()]);
+    const waiting = this.store.state.approvals.flatMap((a) => (a.status === "pending" && a.payload.type === "supplier_email" ? [a.payload] : []));
+    return writeList(suppliers, purchaseOrders, messages, waiting, this.now());
   }
 
   /** Everything the writing page shows before anything is picked. */

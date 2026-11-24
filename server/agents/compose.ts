@@ -178,6 +178,42 @@ export function emailOptions({ supplier: s, order: po, message: m, orders, items
   return out;
 }
 
+/** Where an email can start: a supplier's email nobody has answered, an order still to arrive, or the supplier alone. */
+export interface WriteList {
+  emails: { id: string; supplier: string; from: string; subject: string; at: string; topic: ReturnType<typeof emailTopic>; order?: string; /** Listed without searching for it: news that wants an answer, not about an order that has arrived. */ toAnswer: boolean; draft: boolean }[];
+  orders: { id: string; supplier: string; status: string; due: string; daysLate: number; draft: boolean }[];
+  suppliers: { id: string; name: string; contact: string; open: number }[];
+}
+
+/** `waiting` are the supplier emails in Drafts to check, so a row can say that one is already written. */
+export function writeList(suppliers: LnSupplier[], purchaseOrders: LnPurchaseOrder[], messages: MailMessage[], waiting: SupplierEmailPayload[], today: Date): WriteList {
+  const t = nzDay(today).toISOString().slice(0, 10);
+  const byAddress = new Map(suppliers.filter((s) => s.email).map((s) => [s.email.toLowerCase(), s]));
+  const name = new Map(suppliers.map((s) => [s.supplier, s.name]));
+  const drafted = (order?: string) => !!order && waiting.some((p) => p.purchaseOrder === order);
+  const open = purchaseOrders.filter((po) => OPEN.includes(po.status));
+  // Our last word in each conversation: an email older than that has been answered.
+  const answered = new Map<string, string>();
+  for (const m of messages) if (m.folder === "Sent Items" && m.receivedDateTime > (answered.get(m.conversationId) ?? "")) answered.set(m.conversationId, m.receivedDateTime);
+  const seen = new Set<string>();
+  const emails = [...messages].sort((a, b) => b.receivedDateTime.localeCompare(a.receivedDateTime)).flatMap((m) => {
+    const s = m.folder === "Inbox" ? byAddress.get(m.from.address.toLowerCase()) : undefined;
+    // Only the supplier's latest email in a conversation waits for an answer.
+    if (!s || seen.has(m.conversationId)) return [];
+    seen.add(m.conversationId);
+    if (m.receivedDateTime <= (answered.get(m.conversationId) ?? "")) return [];
+    const po = orderIn(m, purchaseOrders.filter((o) => o.supplier === s.supplier)), topic = emailTopic(m);
+    return [{ id: m.id, supplier: s.name, from: m.from.name, subject: m.subject, at: m.receivedDateTime, topic, order: po?.order, toAnswer: topic !== "confirmed" && (!po || OPEN.includes(po.status)), draft: waiting.some((p) => p.inReplyTo?.id === m.id) || drafted(po?.order) }];
+  });
+  return {
+    // News about an order comes before a notice sent to every customer; within each, the newest first.
+    emails: [...emails.filter((e) => e.order), ...emails.filter((e) => !e.order)],
+    orders: open.map((po) => { const due = dueOf(po); return { id: po.order, supplier: name.get(po.supplier) ?? po.supplier, status: po.status, due, daysLate: due && due < t ? Math.round((new Date(t).getTime() - new Date(due).getTime()) / 86_400_000) : 0, draft: drafted(po.order) }; })
+      .sort((a, b) => b.daysLate - a.daysLate || (a.due || "9").localeCompare(b.due || "9")),
+    suppliers: suppliers.map((s) => ({ id: s.supplier, name: s.name, contact: s.contactName, open: open.filter((po) => po.supplier === s.supplier).length })).sort((a, b) => a.name.localeCompare(b.name)),
+  };
+}
+
 export interface ComposeParts { to: { name: string; address: string }; greeting: string; sign: string; /** Subject when nothing is picked yet. */ subject: string; options: EmailOption[] }
 
 /** The fixed parts of the email: who it goes to, how it opens and how it is signed. */

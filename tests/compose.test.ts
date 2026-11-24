@@ -307,4 +307,45 @@ describe("writing a supplier email from the options", () => {
     expect(emails.find((e) => e.title === delay.subject)).toMatchObject({ reply: delay.id });
     expect(emails.filter((e) => e.status !== "Received").every((e) => !e.reply)).toBe(true);
   });
+
+  it("lists what there is to write about: unanswered supplier emails, orders still to arrive and every supplier", async () => {
+    const { app, store } = setup();
+    type Starts = import("../server/agents/compose").WriteList;
+    const starts = async () => (await request(app).get("/api/supplier-emails/starts").expect(200)).body as Starts;
+    const first = await starts();
+    const inbox = store.state.systems.m365.messages.filter((m) => m.folder === "Inbox");
+
+    // One row for each conversation with a supplier, on their latest email in it; nobody else's email is offered, a freight forwarder's in the same conversation included.
+    expect(first.emails.length).toBeGreaterThan(0);
+    for (const e of first.emails) {
+      const m = inbox.find((x) => x.id === e.id)!;
+      expect(ln(store).suppliers.some((s) => s.email === m.from.address && s.name === e.supplier)).toBe(true);
+      expect(inbox.some((x) => x.conversationId === m.conversationId && x.from.address === m.from.address && x.receivedDateTime > m.receivedDateTime)).toBe(false);
+    }
+    expect(new Set(first.emails.map((e) => inbox.find((x) => x.id === e.id)!.conversationId)).size).toBe(first.emails.length);
+    // An order confirmation needs no answer, so it is found only by searching; news about an order comes before notices to every customer.
+    expect(first.emails.filter((e) => e.topic === "confirmed").every((e) => !e.toAnswer)).toBe(true);
+    expect(first.emails.filter((e) => e.toAnswer).some((e) => e.topic === "delay")).toBe(true);
+    expect(first.emails.findIndex((e) => !e.order)).toBeGreaterThan(first.emails.map((e) => !!e.order).lastIndexOf(true));
+
+    // Orders still to arrive, the latest first, and no order that has arrived.
+    const open = ln(store).purchaseOrders.filter((po) => !["Received", "Closed"].includes(po.status));
+    expect(first.orders.map((o) => o.id).sort()).toEqual(open.map((po) => po.order).sort());
+    expect(first.orders[0].daysLate).toBeGreaterThan(0);
+    expect(first.orders.map((o) => o.daysLate)).toEqual([...first.orders.map((o) => o.daysLate)].sort((a, b) => b - a));
+    const late = first.orders[0], po = open.find((x) => x.order === late.id)!;
+    expect(late).toMatchObject({ due: due(po), daysLate: Math.round((Date.parse("2026-11-23") - Date.parse(due(po)!)) / 86_400_000) });
+    expect(first.suppliers.map((s) => s.id).sort()).toEqual(ln(store).suppliers.map((s) => s.supplier).sort());
+
+    // A reply waiting in Drafts to check is marked on the email and on its order; once it is sent the email is answered and leaves the list.
+    const delay = first.emails.find((e) => e.topic === "delay" && e.order && !e.draft)!;
+    const item = (await request(app).post("/api/supplier-emails").send({ user: "Priya Raman", reply: delay.id, options: ["accept-date"] }).expect(200)).body as ApprovalItem;
+    const waiting = await starts();
+    expect(waiting.emails.find((e) => e.id === delay.id)).toMatchObject({ draft: true });
+    expect(waiting.orders.find((o) => o.id === delay.order)).toMatchObject({ draft: true });
+    await request(app).post(`/api/approvals/${item.id}/approve`).send({ user: "Priya Raman" }).expect(200);
+    const after = await starts();
+    expect(after.emails.some((e) => e.id === delay.id)).toBe(false);
+    expect(after.emails.length).toBe(first.emails.length - 1);
+  });
 });

@@ -193,3 +193,9 @@ html, body, #root { height:100%; }
 .record-act { margin:0 0 12px; } .btn.small { padding:2px 9px; font-size:12px; white-space:nowrap; } .linked > .row { flex:none; }
 @media (max-width: 860px) { .write { grid-template-columns:minmax(0,1fr); } .own-line { flex-direction:column; align-items:stretch; } }
 @media (min-width: 861px) { .write > .card:last-child { position:sticky; top:0; } }
+/* writing a supplier email on one page: what to write about on the left, the email on the right */
+@media (min-width: 861px) { .write-work { grid-template-columns:clamp(250px,25%,330px) minmax(0,1fr); } }
+.write-work > .work-detail { container-type:inline-size; } .write-none { max-width:560px; }
+.write-find { position:sticky; top:0; z-index:1; background:var(--surface); padding:10px; border-bottom:1px solid var(--border); } .write-find input { width:100%; }
+.write-work .list-row > .small { display:block; overflow-wrap:anywhere; line-height:1.7; } .write-work .list-row .pill { margin-right:6px; } .write-more { display:block; margin:8px 14px 12px; }
+@container (max-width: 640px) { .write { grid-template-columns:minmax(0,1fr); } .write > .card:last-child { position:static; } }
