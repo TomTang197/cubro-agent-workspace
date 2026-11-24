@@ -197,7 +197,7 @@ export function writeList(suppliers: LnSupplier[], purchaseOrders: LnPurchaseOrd
   const answered = new Map<string, string>();
   for (const m of messages) if (m.folder === "Sent Items" && m.receivedDateTime > (answered.get(m.conversationId) ?? "")) answered.set(m.conversationId, m.receivedDateTime);
   // The mailbox lists only the latest of what we sent. When that list is full, the answer to an email older than all of it
-  // may be among what is missing, so such an email is not said to be unanswered.
+  // may be among what is missing, so such an email is not said to be waiting for an answer; a search still finds it.
   const sent = messages.filter((m) => m.folder === "Sent Items").map((m) => m.receivedDateTime).sort();
   const since = sent.length >= MAIL_LIST_LIMIT ? sent[0] : "";
   const seen = new Set<string>();
@@ -206,9 +206,9 @@ export function writeList(suppliers: LnSupplier[], purchaseOrders: LnPurchaseOrd
     // Only the supplier's latest email in a conversation waits for an answer.
     if (!s || seen.has(m.conversationId)) return [];
     seen.add(m.conversationId);
-    if (m.receivedDateTime <= (answered.get(m.conversationId) ?? "") || m.receivedDateTime < since) return [];
+    if (m.receivedDateTime <= (answered.get(m.conversationId) ?? "")) return [];
     const po = orderIn(m, purchaseOrders.filter((o) => o.supplier === s.supplier)), topic = emailTopic(m);
-    return [{ id: m.id, supplier: s.name, from: m.from.name, subject: m.subject, at: m.receivedDateTime, topic, order: po?.order, toAnswer: topic !== "confirmed" && (!po || OPEN.includes(po.status)), draft: waiting.some((p) => p.inReplyTo?.id === m.id) || drafted(po?.order) }];
+    return [{ id: m.id, supplier: s.name, from: m.from.name, subject: m.subject, at: m.receivedDateTime, topic, order: po?.order, toAnswer: topic !== "confirmed" && (!po || OPEN.includes(po.status)) && m.receivedDateTime >= since, draft: waiting.some((p) => p.inReplyTo?.id === m.id) || drafted(po?.order) }];
   });
   return {
     // News about an order comes before a notice sent to every customer; within each, the newest first.
