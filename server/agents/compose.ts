@@ -31,22 +31,31 @@ export function emailTopic(m: Pick<MailMessage, "subject" | "body">): "delay" | 
 
 /** Words just before a date that make it the date the delivery is moving away from: "from 12 December", "originally due 12 December". */
 const OLD_DATE = /\b(?:from|instead of|rather than|not|replac(?:es|ing)|(?:original|originally|previous|previously|earlier|old|was|were)(?: \w+){0,3})\s+(?:the\s+)?$/i;
-/** Words earlier in the sentence that make a date the one the delivery is moving to. */
-const NEW_DATE = /\b(?:new|revised|rescheduled|delayed (?:un)?til|delayed to|now (?:be|due|expected|arrive|ship)\b|(?:moved|pushed|put back|postponed|slipped|changed)\b.*\bto\s+(?:the\s+)?$)/i;
+/** Words that say a delivery is moving. Between the date before (or the start of the sentence) and a date, they make that date the new one. */
+const MOVED = /\b(?:new|now|revised|rescheduled|delayed|moved|pushed|put back|postponed|slipped|changed|brought forward)\b/i;
+const TO = /^\s*(?:to|until|till)\s+(?:the\s+)?$/i;
 
 /**
- * The new delivery date a delay notice gives: the date its sentence calls new, revised or moved to, never the one it is moving from.
+ * The new delivery date a delay notice gives: the date it calls new, revised or moved to, never the one it is moving from.
+ * Each date is read by the words since the date before it, so "the new date is 9 December and tracking follows by 12 December"
+ * means 9 December, and "was delayed until 9 December" is where it moved to, not where it was.
  * A notice with one date and no such words means that date, unless `marked` asks for the words. Where the notice leaves it unclear
  * (several dates and no such words, or two different dates both called new), none is quoted rather than the wrong one.
  */
 export function revisedDate(text: string, marked = false): string | undefined {
-  const all = [...text.matchAll(DATE)], before = (d: RegExpMatchArray) => text.slice(0, d.index);
-  const current = all.filter((d) => !OLD_DATE.test(before(d)));
-  const named = [...new Set(current.filter((d) => NEW_DATE.test(before(d).split(/[.!?\n]/).pop()!)).map((d) => d[0]))];
+  const all = [...text.matchAll(DATE)], fresh: string[] = [];
+  let after = 0, last = "";
+  for (const d of all) {
+    const sentence = text.slice(0, d.index).search(/[^.!?\n]*$/), lead = text.slice(Math.max(sentence, after), d.index);
+    const from = OLD_DATE.exec(lead)?.[0];
+    const kind = from && !MOVED.test(from) ? "old" : MOVED.test(lead) || (last === "old" && sentence <= after && TO.test(lead)) ? "new" : "";
+    if (kind === "new") fresh.push(d[0]);
+    after = d.index + d[0].length;
+    last = kind;
+  }
   // The same day given once with its year and once without is one date.
-  const days = new Set(named.map((d) => d.replace(/ \d{4}$/, "")));
-  if (days.size === 1) return named.find((d) => /\d{4}$/.test(d)) ?? named[0];
-  return !marked && !named.length && all.length === 1 ? current[0]?.[0] : undefined;
+  if (new Set(fresh.map((d) => d.replace(/ \d{4}$/, ""))).size === 1) return fresh.find((d) => /\d{4}$/.test(d)) ?? fresh[0];
+  return !marked && !fresh.length && all.length === 1 && last !== "old" ? all[0][0] : undefined;
 }
 
 /** Words before a bare number that make it some other document's number: an invoice, a quote, a consignment. */
