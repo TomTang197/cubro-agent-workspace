@@ -36,17 +36,17 @@ const NEW_DATE = /\b(?:new|revised|rescheduled|delayed (?:un)?til|delayed to|now
 
 /**
  * The new delivery date a delay notice gives: the date its sentence calls new, revised or moved to, never the one it is moving from.
- * A notice with one date and no such words means that date. Where the notice leaves it unclear
+ * A notice with one date and no such words means that date, unless `marked` asks for the words. Where the notice leaves it unclear
  * (several dates and no such words, or two different dates both called new), none is quoted rather than the wrong one.
  */
-export function revisedDate(text: string): string | undefined {
+export function revisedDate(text: string, marked = false): string | undefined {
   const all = [...text.matchAll(DATE)], before = (d: RegExpMatchArray) => text.slice(0, d.index);
   const current = all.filter((d) => !OLD_DATE.test(before(d)));
   const named = [...new Set(current.filter((d) => NEW_DATE.test(before(d).split(/[.!?\n]/).pop()!)).map((d) => d[0]))];
   // The same day given once with its year and once without is one date.
   const days = new Set(named.map((d) => d.replace(/ \d{4}$/, "")));
   if (days.size === 1) return named.find((d) => /\d{4}$/.test(d)) ?? named[0];
-  return !named.length && all.length === 1 ? current[0]?.[0] : undefined;
+  return !marked && !named.length && all.length === 1 ? current[0]?.[0] : undefined;
 }
 
 /** The order a supplier's email is about: the first of this supplier's orders it names, by its full number or by the digits alone (PO41711 or 41711). */
@@ -76,7 +76,9 @@ export function emailOptions({ supplier: s, order: po, message: m, orders, items
   if (m) {
     const theirs = `your email of ${nzDate(nzDay(new Date(m.receivedDateTime)).toISOString())}`;
     if (topic === "delay") {
-      const date = revisedDate(m.body) ?? revisedDate(m.subject);
+      // The subject is read only when the body gives no date at all, and only for a date it calls new: a body with several
+      // unmarked dates is unclear, and a lone date in a subject is as likely the original due date as the new one.
+      const date = m.body.match(DATE) ? revisedDate(m.body) : revisedDate(m.subject, true);
       add("email", "accept-date", date ? `Accept the new date, ${date.replace(/ \d{4}$/, "")}` : "Accept the delay", "revised delivery date", `Thank you for letting us know about the delay to ${ref}. We have noted ${date ? `the new delivery date of ${date}` : "it"} and will plan around it.`);
       add("email", "earlier", "Ask them to bring it forward", "revised delivery date", `${date ? `Delivery on ${date}` : "The new date"} is later than we planned for. Is there any way to bring it forward, or to send part of ${ref} earlier?`);
       add("email", "firm-date", "Ask if the new date is firm", "revised delivery date", `Could you please confirm that ${date ?? "the new date"} is now firm, and tell us straight away if anything changes?`);
