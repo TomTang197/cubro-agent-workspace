@@ -21,7 +21,7 @@ export default function Write() {
   const shown = query && dataPath === `/supplier-emails/options?${query}` ? data : undefined;
   // What is picked on the right is lost when another row is opened, so the list asks first.
   const started = useRef(false);
-  const mayGo = () => !started.current || window.confirm("You have picked what this email says but not saved it. Leave it and start another?");
+  const mayGo = () => !started.current || window.confirm("What you picked or typed for this email is not saved. Leave it and start another?");
   const go = (next: Record<string, string>) => { started.current = false; nav(`/write?${new URLSearchParams(Object.entries(next).filter(([, v]) => v))}`); };
   const at = about.reply ? `email:${about.reply}` : shown?.order ? `order:${shown.order.id}` : shown ? `supplier:${shown.supplier.id}` : about.order ? `order:${about.order}` : `supplier:${about.supplier}`;
   return (
@@ -34,7 +34,7 @@ export default function Write() {
           {!query && <section className="card write-none"><h2>Who are you writing to?</h2><p className="muted">Pick a supplier's email to answer it, a late order to chase it, or search for any supplier or order. What the email can say appears here, with the email beside it.</p></section>}
           {query && error && <div className="error">{error}</div>}
           {query && !error && !shown && <p className="muted">Reading the order and the supplier's emails…</p>}
-          {shown && <Composer key={query} data={shown} about={about} onStarted={(on) => { started.current = on; }} onOrder={(order) => go(about.reply ? { reply: about.reply, near: about.near, order } : { supplier: shown.supplier.id, order })} />}
+          {shown && <Composer key={query} data={shown} about={about} onStarted={(on) => { started.current = on; }} onOrder={(order) => { if (mayGo()) go(about.reply ? { reply: about.reply, near: about.near, order } : { supplier: shown.supplier.id, order }); }} />}
         </div>
       </div>
     </>
@@ -56,7 +56,7 @@ function Starts({ at, onPick }: { at: string; onPick: (next: Record<string, stri
   useEffect(() => { document.querySelector(".write-work .sel")?.scrollIntoView({ block: "nearest" }); }, [at, !!data]);
   return (
     <div className="work-list card flush" aria-label="What to write about">
-      <div className="write-find"><input type="search" value={q} placeholder="Find a supplier, an order or an email" aria-label="Find a supplier, an order or an email" onChange={(e) => setQ(e.target.value)} /></div>
+      <div className="write-find"><input type="search" value={q} placeholder="Find a supplier or an order" aria-label="Find a supplier, an order or an email" onChange={(e) => setQ(e.target.value)} /></div>
       {error && <div className="error">{error} <button type="button" className="link" onClick={reload}>Try again</button></div>}
       {!data && !error && <p className="muted pad">Reading the inbox and the orders…</p>}
       {data && !groups.length && <p className="muted pad">Nothing matches “{q.trim()}”. <button type="button" className="link" onClick={() => setQ("")}>Show them all</button></p>}
@@ -91,7 +91,8 @@ function Composer({ data, about, onOrder, onStarted }: { data: Compose; about: {
   const topic = chosen[0]?.topic;
   const subject = data.replyTo || !topic ? data.subject : data.order ? `${data.order.id} — ${topic}` : `${topic[0].toUpperCase()}${topic.slice(1)}`;
   const empty = !chosen.length && !own.length;
-  useEffect(() => onStarted(!empty), [empty]);
+  const [typing, setTyping] = useState(false);
+  useEffect(() => onStarted(!empty || typing), [empty, typing]);
   const toggle = (o: EmailOption) => setPicked((p) => (p.includes(o.id) ? p.filter((x) => x !== o.id) : [...p, o.id]));
   async function save() {
     setSaving(true); setFailed(undefined);
@@ -112,7 +113,7 @@ function Composer({ data, about, onOrder, onStarted }: { data: Compose; about: {
         {data.waiting && <div className="banner" role="status">A draft about this is already waiting to be checked: <Link to={`/approvals/${data.waiting.id}?agent=supplier-outreach`}>{data.waiting.title}</Link>. You can add to that one instead of writing another.</div>}
         <h2>What do you want to say?</h2>
         <p className="small muted">{data.options.length ? "Pick as many as you need. Each one adds its words to the email." : "Nothing about this order or supplier suggests itself, so write your own line below."}</p>
-        <EmailOptions options={data.options} isOn={(o) => picked.includes(o.id)} onToggle={toggle} onOwn={(text) => setOwn((l) => [...l, text])}
+        <EmailOptions options={data.options} isOn={(o) => picked.includes(o.id)} onToggle={toggle} onOwn={(text) => setOwn((l) => [...l, text])} onTyping={setTyping}
           tidy={(note) => api("/supplier-emails/tidy", { method: "POST", body: { note, email: body } })}>
           {own.map((line, i) => <div className="own-added" key={i}><span>{line}</span><button type="button" className="link" onClick={() => setOwn((l) => l.filter((_, at) => at !== i))} aria-label="Take this line out">Take out</button></div>)}
         </EmailOptions>
