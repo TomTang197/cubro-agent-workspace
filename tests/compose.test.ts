@@ -185,12 +185,14 @@ describe("writing a supplier email from the options", () => {
     expect(shown.subject).toBe(delay.subject);
 
     // Their price notice names no order, so the writer can say which one the reply is about; another supplier's order is not taken.
-    const price = fromSupplier(store, (m) => /^Price list effective/.test(m.subject));
-    const own = ln(store).purchaseOrders.find((o) => o.status === "Confirmed" && ln(store).suppliers.find((s) => s.supplier === o.supplier)!.email === price.from.address);
+    const emailOf = (o: LnPurchaseOrder) => ln(store).suppliers.find((s) => s.supplier === o.supplier)!.email;
+    const confirmed = ln(store).purchaseOrders.filter((o) => o.status === "Confirmed");
+    const price = fromSupplier(store, (m) => /^Price list effective/.test(m.subject) && confirmed.some((o) => emailOf(o) === m.from.address));
+    const own = confirmed.find((o) => emailOf(o) === price.from.address)!;
     const other = ln(store).purchaseOrders.find((o) => ln(store).suppliers.find((s) => s.supplier === o.supplier)!.email !== price.from.address)!;
     expect((await request(app).get(`/api/supplier-emails/options?reply=${price.id}`).expect(200)).body.order).toBeUndefined();
     expect((await request(app).get(`/api/supplier-emails/options?reply=${price.id}&order=${other.order}`).expect(200)).body.order).toBeUndefined();
-    if (own) expect((await request(app).get(`/api/supplier-emails/options?reply=${price.id}&order=${own.order}`).expect(200)).body.order.id).toBe(own.order);
+    expect((await request(app).get(`/api/supplier-emails/options?reply=${price.id}&order=${own.order}`).expect(200)).body.order.id).toBe(own.order);
 
     const item = (await request(app).post("/api/supplier-emails").send({ user: "Priya Raman", reply: delay.id, options: ["accept-date"] }).expect(200)).body as ApprovalItem;
     const p = item.payload as SupplierEmailPayload;
