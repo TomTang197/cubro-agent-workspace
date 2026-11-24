@@ -104,7 +104,8 @@ export function composeParts(input: ComposeInput, by: string): ComposeParts {
   const { supplier: s, order: po, message: m } = input;
   const role = STAFF.find((x) => x.name === by)?.role;
   return {
-    to: { name: s.contactName, address: s.email },
+    // A reply goes where the supplier asked for replies, which is not always the address the email came from.
+    to: m?.replyTo?.find((r) => r.address) ?? { name: s.contactName, address: s.email },
     greeting: `Hi ${first(s.contactName)},`,
     sign: `Kind regards,\n${by}\n${role ? `${role}, ` : ""}Cubro Ltd\nTauriko, Tauranga, New Zealand`,
     subject: m ? (/^re:/i.test(m.subject) ? m.subject : `RE: ${m.subject}`) : po ? `Purchase order ${po.order}` : "Message from Cubro Purchasing",

@@ -302,7 +302,7 @@ export class AgentService {
       const p = a.payload;
       if (!did("email")) {
         if (!did("draft")) {
-          const draft = await this.connectors.m365.createDraft({ from: { name: this.store.state.settings.supplier.sender, address: "purchasing@cubro.co.nz" }, to: [p.to], subject: p.subject, body: p.body, replyTo: p.inReplyTo?.id });
+          const draft = await this.connectors.m365.createDraft({ from: { name: this.store.state.settings.supplier.sender, address: "purchasing@cubro.co.nz" }, to: [p.to], subject: p.subject, body: p.body, inReplyTo: p.inReplyTo?.id });
           record("draft", "Microsoft 365", draft.id, `Email to ${p.to.address} saved as a draft in the purchasing mailbox, not sent yet`);
         }
         const sent = await this.connectors.m365.sendDraft(did("draft")!.ref);

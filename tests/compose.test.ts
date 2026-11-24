@@ -77,6 +77,15 @@ describe("what a supplier email can say", () => {
     expect(options.every((o) => o.from === "supplier")).toBe(true);
   });
 
+  it("addresses a reply to the Reply-To address when the supplier's email names one", () => {
+    const { store } = setup();
+    const delay = fromSupplier(store, (m) => /revised delivery date/.test(m.subject));
+    const po = ln(store).purchaseOrders.find((o) => delay.subject.includes(o.order))!;
+    expect(composeParts(input(store, po, delay), "Priya Raman").to.address).toBe(delay.from.address);
+    const orders = { name: "Order desk", address: "orders@supplier.example.com" };
+    expect(composeParts(input(store, po, { ...delay, replyTo: [orders] }), "Priya Raman").to).toEqual(orders);
+  });
+
   it("signs with the writer's own name and job", () => {
     const { store } = setup();
     const parts = composeParts(input(store, ln(store).purchaseOrders[0]), "Mark Jensen");

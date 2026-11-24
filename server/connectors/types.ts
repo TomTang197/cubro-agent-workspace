@@ -45,6 +45,8 @@ export interface MailMessage {
   conversationId: string;
   from: { name: string; address: string };
   to: { name: string; address: string }[];
+  /** Where the sender asked for replies to go, when that is not the address it came from. */
+  replyTo?: { name: string; address: string }[];
   subject: string;
   bodyPreview: string;
   body: string;
@@ -74,7 +76,7 @@ export interface M365Connector {
   status(): Promise<ConnectorStatus>;
   listEvents(fromIso: string, toIso: string): Promise<CalendarEvent[]>;
   listMessages(folder?: MailMessage["folder"]): Promise<MailMessage[]>;
-  createDraft(msg: Omit<MailMessage, "id" | "conversationId" | "receivedDateTime" | "isDraft" | "folder" | "bodyPreview"> & { /** The id of the message this one answers, so it is filed in the same conversation. */ replyTo?: string }): Promise<MailMessage>;
+  createDraft(msg: Omit<MailMessage, "id" | "conversationId" | "receivedDateTime" | "isDraft" | "folder" | "bodyPreview" | "replyTo"> & { /** The id of the message this one answers, so it is filed in the same conversation. */ inReplyTo?: string }): Promise<MailMessage>;
   sendDraft(id: string): Promise<MailMessage>;
   listBrandAssets(): Promise<BrandAsset[]>;
   listTeamsPosts(): Promise<TeamsPost[]>;
