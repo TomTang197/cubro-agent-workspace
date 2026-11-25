@@ -169,7 +169,7 @@ describe("key facts in an email", () => {
 });
 
 describe("key facts in the workspace", () => {
-  const setup = (llm: LlmProvider = templateProvider) => { const store = new Store({ today }); return { store, app: createApp(store, { llm, env: {}, now: () => today }) }; };
+  const setup = (llm: LlmProvider = templateProvider, now = () => today) => { const store = new Store({ today }); return { store, app: createApp(store, { llm, env: {}, now }) }; };
   const ack = (store: Store) => store.state.systems.m365.messages.find((m) => m.folder === "Inbox" && /order acknowledgement$/.test(m.subject) && /acknowledged \d+ units/.test(m.body))!;
 
   it("shows a supplier's email with what differs from its order, and leaves the email as it was", async () => {
@@ -189,7 +189,8 @@ describe("key facts in the workspace", () => {
   it("has the model read each email once, and falls back to the rules when it fails", async () => {
     const reading = vi.fn(async ({ text }: { text: string }) => JSON.stringify([{ kind: "item", text: /\d+ x \S+ (\w+ \w+)/.exec(text)![1] }, { kind: "quantity", text: "999 units" }]));
     const llm: LlmProvider = { name: "Model", polish: async (i) => i.draft, read: reading };
-    const { store, app } = setup(llm), m = ack(store);
+    let now = today;
+    const { store, app } = setup(llm, () => now), m = ack(store);
     const quick = (await request(app).get(`/api/supplier-emails/facts?reply=${m.id}&quick=1`).expect(200)).body;
     expect(quick).toMatchObject({ more: true });
     expect(reading).not.toHaveBeenCalled();
@@ -205,8 +206,24 @@ describe("key facts in the workspace", () => {
     const failed = (await request(app).get(`/api/supplier-emails/facts?reply=${part.id}`).expect(200)).body;
     expect(failed.readBy).toBeUndefined();
     expect(failed.facts.some((f: { kind: string }) => f.kind === "tracking")).toBe(true);
+    // A failed reading stands for ten minutes, so a model that is down is not asked on every look.
     await request(app).get(`/api/supplier-emails/facts?reply=${part.id}`).expect(200);
+    expect(reading).toHaveBeenCalledTimes(2);
+    now = new Date(today.getTime() + 11 * 60_000);
+    reading.mockResolvedValue("[]");
+    expect((await request(app).get(`/api/supplier-emails/facts?reply=${part.id}`).expect(200)).body.readBy).toBe("Model");
     expect(reading).toHaveBeenCalledTimes(3);
+  });
+
+  it("does not ask the model again for each change to a draft while its reading of the email has failed", async () => {
+    const reading = vi.fn(async (_: { instructions: string; text: string }): Promise<string> => { throw new Error("Gemini error 429"); });
+    const { store, app } = setup({ name: "Model", polish: async (i) => i.draft, read: reading }), m = ack(store);
+    const draft: ApprovalItem = (await request(app).post("/api/supplier-emails").send({ reply: m.id, options: ["thanks"], own: [], user: "Priya Raman" }).expect(200)).body;
+    for (const n of [1, 2, 3, 4, 5]) {
+      const facts = (await request(app).post(`/api/approvals/${draft.id}/facts`).send({ body: `Hi, thanks ${n}`, quick: false }).expect(200)).body;
+      expect(facts.inReplyTo.readBy).toBeUndefined();
+    }
+    expect(reading).toHaveBeenCalledTimes(1);
   });
 
   it("shows a draft's facts as it reads now, and sends the email as plain text", async () => {

@@ -93,6 +93,7 @@ export function createApp(store: Store, opts: { llm?: LlmProvider; staticDir?: s
       agents: perAgent,
       activity: s.activity.slice(0, 12),
       provider: agents.providerName,
+      modelToday: agents.modelUsage,
     };
   }));
 

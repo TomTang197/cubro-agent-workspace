@@ -9,6 +9,9 @@ import { FOLLOW_UP_DAYS, handledSupplierKeys, nzDate, nzDay as nzMidnight, planS
 import { dateProblem, nzClock, nzDay, nzTime, shiftDay, shortDay } from "./nzTime.js";
 import { EVENT_LEAD_DAYS, buildSocialDrafts, busySocialSlots, socialBrief, takenSocialTopics } from "./social.js";
 
+/** How long a failed reading of an email stands before the model is asked again. */
+export const READ_RETRY_MS = 10 * 60_000;
+
 export const AGENTS: Record<AgentId, { name: string; description: string; team: string; reads: string[]; writes: string[] }> = {
   "social-media": {
     name: "Social Media Planner",
@@ -30,13 +33,24 @@ export class AgentService {
   constructor(private store: Store, private connectors: Connectors, private llm: LlmProvider, private now: () => Date = () => new Date()) {}
 
   get providerName() { return this.llm.name; }
+  get modelUsage() { return this.llm.usage?.(); }
 
   /** Work that was under way when the sample data was restored belongs to the old data, so none of it is saved into the new. */
   private unlessRestored(state: Store["state"]) {
     if (this.store.state !== state) throw new HttpError(409, "The sample data was restored while this was under way, so nothing was saved. Please try again.");
   }
 
-  async run(agent: AgentId, triggeredBy: string, today = this.now()): Promise<AgentRun> {
+  // One run per assistant at a time: a second ask while it drafts gets that same run, so nothing is drafted or paid for twice.
+  private running = new Map<AgentId, Promise<AgentRun>>();
+  run(agent: AgentId, triggeredBy: string, today = this.now()): Promise<AgentRun> {
+    const had = this.running.get(agent);
+    if (had) return had;
+    const run = this.runOnce(agent, triggeredBy, today).finally(() => this.running.delete(agent));
+    this.running.set(agent, run);
+    return run;
+  }
+
+  private async runOnce(agent: AgentId, triggeredBy: string, today: Date): Promise<AgentRun> {
     const startedAt = new Date().toISOString();
     const state = this.store.state;
     const steps: AgentRun["steps"] = [];
@@ -165,16 +179,18 @@ export class AgentService {
     return emailOptions(input).filter((o) => !made.includes(o.id));
   }
 
-  // What the model read in an email, asked once per email. A reading that failed is asked for again the next time.
-  private readings = new Map<string, Promise<Candidate[]>>();
+  // What the model read in an email, asked once per email. A reading that failed is not asked for again for a while,
+  // so a model that is down or out of quota is not called on every pause in typing.
+  private readings = new Map<string, { asked: Promise<Candidate[]>; failedAt?: number }>();
   private reading(text: string) {
     const had = this.readings.get(text);
-    if (had) return had;
+    if (had && (had.failedAt === undefined || this.now().getTime() - had.failedAt < READ_RETRY_MS)) return had.asked;
+    this.readings.delete(text);
     if (this.readings.size >= 500) this.readings.delete(this.readings.keys().next().value!);
-    const asked = readFacts(this.llm, text);
-    this.readings.set(text, asked);
-    asked.catch(() => { if (this.readings.get(text) === asked) this.readings.delete(text); });
-    return asked;
+    const entry: { asked: Promise<Candidate[]>; failedAt?: number } = { asked: readFacts(this.llm, text) };
+    this.readings.set(text, entry);
+    entry.asked.catch(() => { entry.failedAt = this.now().getTime(); });
+    return entry.asked;
   }
 
   /** The key facts of an email. `quick` leaves the model out, so the page has the facts the rules find at once. */
