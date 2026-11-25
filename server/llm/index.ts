@@ -6,7 +6,11 @@ export interface LlmProvider {
   polish(input: { task: string; draft: string; context: string; tone: string }): Promise<string>;
   /** Answers `instructions` about a text it is given, to read what the text says rather than to write one. The built-in templates cannot. */
   read?(input: { instructions: string; text: string }): Promise<string>;
+  /** Today's calls to the model and how many of them failed, for a provider with a daily limit. */
+  usage?(): ModelUsage;
 }
+
+export interface ModelUsage { day: string; drafts: number; reads: number; failed: number; lastError?: string }
 
 type Env = Record<string, string | undefined>;
 const TIMEOUT_MS = 45_000;
@@ -66,25 +70,40 @@ export const DEFAULT_DAILY_READ_LIMIT = 300;
 // Caps model calls per UTC day, because the run endpoint has no sign-in of its own and every call spends the key's quota.
 // Failed calls count too. The count lives in memory, so resetting the workspace data does not clear it.
 // Reading an email is counted apart from writing, so opening emails never uses up the drafts.
-export function withDailyLimit(provider: LlmProvider, perDay: number, now: () => Date = () => new Date(), readsPerDay = DEFAULT_DAILY_READ_LIMIT): LlmProvider {
-  let day = "", used = 0, read = 0;
-  const newDay = () => { const today = now().toISOString().slice(0, 10); if (today !== day) { day = today; used = 0; read = 0; } };
+export function withDailyLimit(provider: LlmProvider, perDay: number, now: () => Date = () => new Date(), readsPerDay = DEFAULT_DAILY_READ_LIMIT, log: (line: string) => void = console.warn): LlmProvider {
+  let day = "", used = 0, read = 0, failed = 0, lastError: string | undefined, warnedLimit = new Set<string>();
+  const newDay = () => { const today = now().toISOString().slice(0, 10); if (today !== day) { day = today; used = 0; read = 0; failed = 0; lastError = undefined; warnedLimit = new Set(); } };
+  const limited = (what: string, limit: number) => {
+    const message = `daily limit of ${limit} ${what} reached`;
+    if (!warnedLimit.has(what)) { warnedLimit.add(what); log(`[model] ${provider.name}: ${message}; the rest of today falls back to the built-in rules`); }
+    return new Error(message);
+  };
+  // Every failed call is logged and counted, so errors from the model leave a trace even where the page shows none.
+  const call = async <T>(kind: string, ask: () => Promise<T>) => {
+    try { return await ask(); } catch (e) {
+      failed++;
+      lastError = (e instanceof Error ? e.message : String(e)).slice(0, 200);
+      log(`[model] ${provider.name} ${kind} failed (${failed} failed today): ${lastError}`);
+      throw e;
+    }
+  };
   return {
     name: provider.name,
     async polish(input) {
       newDay();
-      if (used >= perDay) throw new Error(`daily limit of ${perDay} model-written drafts reached`);
+      if (used >= perDay) throw limited("model-written drafts", perDay);
       used++;
-      return provider.polish(input);
+      return call("draft", () => provider.polish(input));
     },
     ...(provider.read && {
       async read(input) {
         newDay();
-        if (read >= readsPerDay) throw new Error(`daily limit of ${readsPerDay} emails read by the model reached`);
+        if (read >= readsPerDay) throw limited("emails read by the model", readsPerDay);
         read++;
-        return provider.read!(input);
+        return call("read", () => provider.read!(input));
       },
     }),
+    usage() { newDay(); return { day, drafts: used, reads: read, failed, ...(lastError && { lastError }) }; },
   };
 }
 

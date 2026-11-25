@@ -125,3 +125,44 @@ describe("agent runs with Gemini", () => {
     for (const a of created(store, n)) expect(a.payload.type === "supplier_email" && a.payload.body).toContain("Kind regards,");
   });
 });
+
+describe("guarding the model's quota", () => {
+  it("runs an assistant once when it is asked twice at the same time", async () => {
+    const fetch = mockFetch(async () => { await new Promise((r) => setTimeout(r, 20)); return reply(modelOutput("Gemini wrote this.")); });
+    const store = new Store({ today });
+    const app = createApp(store, { env: { GEMINI_API_KEY: "secret-key" }, now: () => today });
+    const [a, b] = await Promise.all([1, 2].map(() => request(app).post("/api/agents/social-media/run").send({}).expect(200)));
+    expect(a.body.id).toBe(b.body.id);
+    expect(a.body.itemsCreated).toBeGreaterThan(0);
+    expect(fetch).toHaveBeenCalledTimes(a.body.itemsCreated);
+    expect(store.state.runs.filter((r) => r.id === a.body.id)).toHaveLength(1);
+    const titles = store.state.approvals.filter((x) => x.runId === a.body.id).map((x) => x.title);
+    expect(new Set(titles).size).toBe(titles.length);
+    // Once it has finished, the next ask is a new run.
+    const next = await request(app).post("/api/agents/social-media/run").send({}).expect(200);
+    expect(next.body.id).not.toBe(a.body.id);
+  });
+
+  it("logs and counts every failed call, and says once when the day's limit is reached", async () => {
+    const lines: string[] = [];
+    const polish = vi.fn(async () => { throw new Error("Gemini error 429 rate_limit_exceeded"); });
+    const llm = withDailyLimit({ name: "Model", polish }, 2, () => today, 300, (l) => lines.push(l));
+    for (let i = 0; i < 4; i++) await expect(llm.polish(input)).rejects.toThrow();
+    expect(polish).toHaveBeenCalledTimes(2);
+    expect(llm.usage!()).toEqual({ day: "2026-11-23", drafts: 2, reads: 0, failed: 2, lastError: "Gemini error 429 rate_limit_exceeded" });
+    expect(lines).toEqual([
+      "[model] Model draft failed (1 failed today): Gemini error 429 rate_limit_exceeded",
+      "[model] Model draft failed (2 failed today): Gemini error 429 rate_limit_exceeded",
+      "[model] Model: daily limit of 2 model-written drafts reached; the rest of today falls back to the built-in rules",
+    ]);
+  });
+
+  it("shows today's model calls on the dashboard", async () => {
+    mockFetch(() => reply(modelOutput("Gemini wrote this.")));
+    const app = createApp(new Store({ today }), { env: { GEMINI_API_KEY: "secret-key" }, now: () => today });
+    const run = (await request(app).post("/api/agents/social-media/run").send({}).expect(200)).body;
+    const dash = (await request(app).get("/api/dashboard").expect(200)).body;
+    expect(dash.modelToday).toMatchObject({ drafts: run.itemsCreated, reads: 0, failed: 0 });
+    expect((await request(createApp(new Store({ today }), { llm: templateProvider, env: {} })).get("/api/dashboard").expect(200)).body.modelToday).toBeUndefined();
+  });
+});
