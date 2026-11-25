@@ -432,11 +432,19 @@ export function generateSystemData(seed = 20261123, today = new Date()): SystemD
     addMail("Sent Items", us, them, subject, `Hi ${first(s.contactName)},\n\nPlease find attached purchase order ${po.order}:\n\n${list}\n\nWe need this at our Tauriko warehouse by ${longDate(po.plannedReceiptDate)} (${s.incoterms}). Please confirm pricing and your ship date.\n\nKind regards,\n${po.buyer}\n${role(po.buyer)}, Cubro Ltd`, hourAt(ordered), conv);
     if (po.status === "Sent") continue;
     addMail("Inbox", them, us, `RE: ${subject}`, `Hi ${first(po.buyer)},\n\nThank you for the order. We confirm ${po.order} at the prices shown${overseas ? ` and will ship ${s.incoterms}` : ""}. Delivery to Tauriko is expected around ${longDate(po.plannedReceiptDate)}.\n\nBest regards,\n${s.contactName}\n${s.name}`, hourAt(m.confirmOn), conv);
+    // Now and then a supplier's acknowledgement does not match the order: fewer units, or a newer price. Its time is fixed, so the other emails stay as they were.
+    const ackOn = toWeekday(addDays(m.confirmOn, 1)), nth = Number(po.order.replace(/\D/g, "")) % 10, l = po.lines[0];
+    if (po.status === "Confirmed" && !m.late && !m.revised && ackOn < today && (nth === 0 || nth === 5)) {
+      const fewer = nth === 0 && l.quantity >= 4, qty = fewer ? Math.round(l.quantity * 0.75) : l.quantity, price = fewer ? l.price : Math.round(l.price * 104) / 100;
+      const acked = [`  ${qty} x ${l.item} ${itemBy.get(l.item)!.description} @ ${po.currency} ${price.toFixed(2)}`, ...list.split("\n").slice(1)].join("\n");
+      const note = fewer ? `Stock of ${l.item} is short this month, so we have acknowledged ${qty} units for now.` : `Please note that ${l.item} is at our current list price of ${po.currency} ${price.toFixed(2)} each.`;
+      addMail("Inbox", them, us, `RE: ${subject} — order acknowledgement`, `Hi ${first(po.buyer)},\n\nPlease find our acknowledgement of your purchase order ${po.order}:\n\n${acked}\n\n${note} Please let me know if that is a problem.\n\nBest regards,\n${s.contactName}`, nzTime(ackOn, 10, 12), conv);
+    }
     if (m.revised || (m.late && m.receipt <= today)) {
       addMail("Inbox", them, us, `RE: ${subject} — revised delivery date`, `Hi ${first(po.buyer)},\n\nI am sorry to advise that ${po.order} is delayed because of ${rng.pick(delayReasons)}. The new delivery date to Tauriko is ${longDate(m.receipt)}.\n\nWe apologise for the inconvenience.\n\nBest regards,\n${s.contactName}`, hourAt(toWeekday(addDays(day(po.plannedReceiptDate), -rng.int(3, 9)), -1)), conv);
     }
     if (po.status === "Partially received") {
-      addMail("Inbox", them, us, `RE: ${subject} — part shipment`, `Hi ${first(po.buyer)},\n\nWe have shipped the part of ${po.order} that was ready so you are not left waiting for everything. The balance will follow and I will confirm the date as soon as production gives it to me.\n\nBest regards,\n${s.contactName}`, hourAt(toWeekday(addDays(day(po.plannedReceiptDate), -2), -1)), conv);
+      addMail("Inbox", them, us, `RE: ${subject} — part shipment`, `Hi ${first(po.buyer)},\n\nWe have shipped the part of ${po.order} that was ready so you are not left waiting for everything:\n\n${po.lines.filter((x) => x.received > 0).map((x) => `  ${x.received} of the ${x.quantity} x ${x.item} ${itemBy.get(x.item)!.description}`).join("\n")}\n\nThe tracking number is BFL${po.order.replace(/\D/g, "")}${po.lines.length}NZ. The balance will follow and I will confirm the date as soon as production gives it to me.\n\nBest regards,\n${s.contactName}`, hourAt(toWeekday(addDays(day(po.plannedReceiptDate), -2), -1)), conv);
     }
     const arriving = m.receipt <= today || po.status === "Confirmed";
     const eta = m.receipt <= today ? m.receipt : day(po.confirmedReceiptDate!);

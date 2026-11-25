@@ -199,3 +199,15 @@ html, body, #root { height:100%; }
 .write-find { position:sticky; top:0; z-index:1; background:var(--surface); padding:10px; border-bottom:1px solid var(--border); } .write-find input { width:100%; }
 .write-work .list-row > .small { display:block; overflow-wrap:anywhere; line-height:1.7; } .write-work .list-row .pill { margin-right:6px; } .write-more { display:block; margin:8px 14px 12px; }
 @container (max-width: 640px) { .write { grid-template-columns:minmax(0,1fr); } .write > .card:last-child { position:static; } }
+/* Key facts: the numbers in an email picked out for the reader. Shown in the workspace only; the email's own text is not changed. */
+mark.fact { color:inherit; background:#7919FF12; box-shadow:inset 0 -2px #7919FF4d; border-radius:2px; padding:0 2px; font:inherit; }
+mark.fact-item { background:#1D6FD612; box-shadow:inset 0 -2px #1D6FD64d; } mark.fact-quantity { background:#B25E0014; box-shadow:inset 0 -2px #B25E0059; }
+mark.fact-date { background:#18794E14; box-shadow:inset 0 -2px #18794E59; } mark.fact-price { background:#0E7C8614; box-shadow:inset 0 -2px #0E7C8659; } mark.fact-tracking { background:#33333312; box-shadow:inset 0 -2px #33333340; }
+mark.fact.differs { background:#C0392B1f; box-shadow:inset 0 -2px var(--bad); color:var(--bad); }
+.key-facts { border:1px solid var(--border); border-left:3px solid var(--accent); border-radius:var(--radius); background:#FAFAFD; padding:10px 14px; margin:10px 0 12px; font-size:14px; }
+.key-facts-head { display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin:0 0 6px; }
+.key-facts dl { margin:0 0 6px; } .key-facts dl > div { display:grid; grid-template-columns:64px 1fr; gap:8px; padding:3px 0; border-top:1px solid var(--border); }
+.key-facts dt { color:var(--muted); font-size:12px; padding-top:3px; } .key-facts dd { margin:0; min-width:0; }
+.key-facts ul { list-style:none; margin:0; padding:0; display:flex; flex-wrap:wrap; gap:0 16px; } .key-facts li { overflow-wrap:anywhere; line-height:1.7; }
+.key-facts li.differs { flex-basis:100%; } .fact-note { color:var(--muted); font-size:13px; } .fact-note.same { color:var(--ok); cursor:help; } .fact-note.differs { color:var(--bad); font-weight:500; }
+.key-facts > p.small { margin:0; }
